@@ -561,7 +561,7 @@
                 if (ucId.startsWith('UC')) {
                     let initialLoadSuccess = false;
 
-                    // --- FASE 1: CARICAMENTO ISTANTANEO (Mostra subito i primi 10 video) ---
+                    // --- FASE 1: VELOCE (Feed RSS standard da 10 elementi via rss2json) ---
                     try {
                         const fastFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
                         const fastRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(fastFeedUrl)}`);
@@ -577,58 +577,114 @@
                             });
                             appendVideoCards(fastParsed, listContainer, false);
                             initialLoadSuccess = true;
+                            console.log("[DEBUG] Fase 1 completata. Stampati 10 video.");
                         }
                     } catch (e) {
-                        console.log("Fase veloce ignorata, attendo il caricamento profondo...");
+                        console.warn("[DEBUG] Fase 1 fallita:", e);
                     }
 
-                    // --- FASE 2: CARICAMENTO PROFONDO ASINCRONO (Ne scarica 30 totali, aggiungendo i 20 mancanti) ---
+                    // --- FASE 2: DEEP PARSING SEPARATO AD ALTA STABILITÀ ---
                     setTimeout(async () => {
                         const uuPlaylistId = 'UU' + ucId.substring(2);
                         const playlistWebUrl = `https://www.youtube.com/playlist?list=${uuPlaylistId}`;
                         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(playlistWebUrl)}`;
 
+                        console.log("[DEBUG] Avvio Fase 2 su URL:", playlistWebUrl);
+
                         try {
                             const res = await fetch(proxyUrl);
-                            if (res.ok) {
-                                const data = await res.json();
-                                const htmlContent = data.contents;
-                                
-                                const regex = /ytInitialData\s*=\s*({.+?});/;
-                                const match = htmlContent.match(regex);
-                                if (match) {
-                                    const ytData = JSON.parse(match[1]);
-                                    const contents = ytData.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents?.[0]?.playlistVideoListRenderer?.contents;
-                                    
-                                    if (contents && contents.length > 0) {
-                                        let deepParsedVideos = [];
-                                        
-                                        for (let item of contents) {
-                                            const videoRenderer = item.playlistVideoRenderer;
-                                            if (videoRenderer && videoRenderer.videoId) {
-                                                const title = videoRenderer.title?.runs?.[0]?.text || "YouTube Video";
-                                                deepParsedVideos.push({
-                                                    title: title,
-                                                    embedUrl: `https://www.youtube.com/embed/${videoRenderer.videoId}?autoplay=1&modestbranding=1&rel=0`
-                                                });
-                                            }
-                                        }
+                            if (!res.ok) throw new Error("Risposta proxy non OK: " + res.status);
+                            
+                            const data = await res.json();
+                            const htmlContent = data.contents;
+                            
+                            if (!htmlContent) {
+                                console.error("[DEBUG] Errore: Il proxy ha restituito un oggetto vuoto.");
+                                return;
+                            }
+                            
+                            console.log("[DEBUG] Lunghezza HTML scaricato:", htmlContent.length);
 
-                                        if (deepParsedVideos.length > 0) {
-                                            appendVideoCards(deepParsedVideos.slice(0, 30), listContainer, initialLoadSuccess);
-                                            return;
-                                        }
+                            let deepParsedVideos = [];
+                            const seenIds = new Set();
+
+                            // Isoliamo tutti i frammenti JSON dei singoli video per evitare Catastrophic Backtracking
+                            const chunkRegex = /"playlistVideoRenderer"\s*:\s*\{[\s\S]*?\}(?=\s*,\s*"|\]\s*\}\s*,\s*\{)/g;
+                            let chunkMatch;
+                            let totalChunksFound = 0;
+
+                            while ((chunkMatch = chunkRegex.exec(htmlContent)) !== null) {
+                                totalChunksFound++;
+                                const chunk = chunkMatch[0];
+                                
+                                // Estraiamo ID e Titolo in modo isolato e ultra-veloce dentro il blocco del video
+                                const idMatch = chunk.match(/"videoId"\s*:\s*"([^"]+)"/);
+                                const titleMatch = chunk.match(/"text"\s*:\s*"([^"]+)"/);
+
+                                if (idMatch && idMatch[1]) {
+                                    const videoId = idMatch[1];
+                                    // Se manca il titolo testuale o contiene caratteri di escape, usiamo un fallback pulito
+                                    let title = (titleMatch && titleMatch[1]) ? titleMatch[1] : "YouTube Video";
+                                    
+                                    // Pulizia dei caratteri unicode (es. \u0026 -> &)
+                                    title = title.replace(/\\u([\dA-Fa-f]{4})/g, (_, grp) => String.fromCharCode(parseInt(grp, 16)));
+
+                                    if (!seenIds.has(videoId)) {
+                                        seenIds.add(videoId);
+                                        deepParsedVideos.push({
+                                            title: title,
+                                            embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
+                                        });
                                     }
                                 }
                             }
+
+                            console.log(`[DEBUG] Blocchi grezzi trovati nell'HTML: ${totalChunksFound}, Video validi estratti: ${deepParsedVideos.length}`);
+
+                            if (deepParsedVideos.length > 0) {
+                                // Forziamo l'estensione fino a 40 video. Append scarterà i duplicati visivi della fase 1.
+                                appendVideoCards(deepParsedVideos.slice(0, 40), listContainer, initialLoadSuccess);
+                                console.log("[DEBUG] Fase 2 completata con successo ed inserita nell'interfaccia.");
+                                return;
+                            } else {
+                                console.warn("[DEBUG] La regex non ha estratto video. Provo con il selettore alternativo di griglia...");
+                                
+                                // Fallback se YouTube sta usando il layout a griglia alternativa (richItemRenderer)
+                                const gridChunkRegex = /"richItemRenderer"\s*:\s*\{[\s\S]*?\}(?=\s*,\s*"|\]\s*\}\s*,\s*\{)/g;
+                                while ((chunkMatch = gridChunkRegex.exec(htmlContent)) !== null) {
+                                    const chunk = chunkMatch[0];
+                                    const idMatch = chunk.match(/"videoId"\s*:\s*"([^"]+)"/);
+                                    const titleMatch = chunk.match(/"text"\s*:\s*"([^"]+)"/);
+
+                                    if (idMatch && idMatch[1]) {
+                                        const videoId = idMatch[1];
+                                        let title = (titleMatch && titleMatch[1]) ? titleMatch[1] : "YouTube Video";
+                                        title = title.replace(/\\u([\dA-Fa-f]{4})/g, (_, grp) => String.fromCharCode(parseInt(grp, 16)));
+
+                                        if (!seenIds.has(videoId)) {
+                                            seenIds.add(videoId);
+                                            deepParsedVideos.push({
+                                                title: title,
+                                                embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
+                                            });
+                                        }
+                                    }
+                                }
+                                
+                                console.log(`[DEBUG] Tentativo di griglia alternativa completato. Totale video: ${deepParsedVideos.length}`);
+                                if (deepParsedVideos.length > 0) {
+                                    appendVideoCards(deepParsedVideos.slice(0, 40), listContainer, initialLoadSuccess);
+                                    return;
+                                }
+                            }
                         } catch (err) {
-                            console.error("Errore nel recupero profondo HTML:", err);
+                            console.error("[DEBUG] Errore critico in Fase 2:", err);
                         }
 
                         if (!initialLoadSuccess) {
                             listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile aggiornare l\'archivio video.</p>';
                         }
-                    }, 100);
+                    }, 200);
                 }
 
             } else if (channel.platform === 'youtube_video') {
