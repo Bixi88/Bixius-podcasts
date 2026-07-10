@@ -322,14 +322,6 @@
             color: var(--text-secondary);
         }
 
-        .loading-indicator {
-            text-align: center;
-            padding: 16px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            display: none;
-        }
-
         .settings-card {
             background-color: var(--bg-surface);
             padding: 20px;
@@ -356,28 +348,6 @@
             padding: 10px 12px;
             border-radius: 6px;
             font-size: 14px;
-        }
-
-        .api-input-container {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-api-save {
-            background-color: #333;
-            color: #fff;
-            border: 1px solid #444;
-            padding: 0 16px;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 12px;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: background-color 0.2s;
-        }
-
-        .btn-api-save:hover {
-            background-color: #444;
         }
 
         .btn-row {
@@ -414,8 +384,8 @@
     <div id="homePanel" class="container view-panel active">
         <div class="marquee-wrapper">
             <div class="marquee-content" id="marqueeText">
-                <p>Seleziona un canale salvato o aggiungine uno nuovo dalle impostazioni</p>
-                <p>Seleziona un canale salvato o aggiungine uno nuovo dalle impostazioni</p>
+                <p>Seleziona un canale o aggiungine uno nuovo dalle impostazioni</p>
+                <p>Seleziona un canale o aggiungine uno nuovo dalle impostazioni</p>
             </div>
         </div>
 
@@ -437,24 +407,9 @@
                 Nessun canale selezionato. Usa l'ingranaggio per configurare la lista.
             </p>
         </div>
-        <div id="loadingIndicator" class="loading-indicator">Caricamento altri contenuti...</div>
     </div>
 
     <div id="settingsPanel" class="container view-panel">
-        <div class="settings-card" style="margin-bottom: 20px; border: 1px solid rgba(255, 0, 0, 0.2);">
-            <h2 style="font-size:16px; margin-bottom:12px; color: var(--yt-red); display:flex; align-items:center; gap:6px;">
-                <i class="material-icons-round" style="font-size:20px;">vpn_key</i> Configurazione YouTube API
-            </h2>
-            <div class="form-group">
-                <label>YouTube Data API v3 Key</label>
-                <div class="api-input-container">
-                    <input type="password" id="inputApiKey" class="form-control" placeholder="Incolla qui la tua API Key...">
-                    <button class="btn-api-save" id="btnSaveApi" onclick="saveApiKey()">Salva Key</button>
-                </div>
-                <small id="apiStatusMessage" style="display:block; margin-top:6px; font-size:11px; color:var(--text-secondary);"></small>
-            </div>
-        </div>
-
         <div class="settings-card">
             <h2 style="font-size:18px; margin-bottom:12px;">Gestione Canali</h2>
             <div class="form-group">
@@ -464,7 +419,7 @@
             <div class="form-group">
                 <label>Piattaforma</label>
                 <select id="inputPlatform" class="form-control" onchange="updatePlaceholder()">
-                    <option value="youtube_channel">YouTube (Solo ID Canale UC...)</option>
+                    <option value="youtube_channel">YouTube (ID Canale UC...)</option>
                     <option value="youtube_video">YouTube (ID Singolo Video o Playlist ID)</option>
                     <option value="twitch">Twitch (Nome Utente Canale)</option>
                 </select>
@@ -487,50 +442,8 @@
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
         let displayedVideoUrls = new Set();
-        
-        let activeChannelId = null;
-        let localVideoCache = [];      
-        let currentRenderedCount = 0;  
-        let nextPageToken = "";        
-        let isProcessingScroll = false;
-
-        // Caricamento iniziale e controllo stato chiave API
-        function loadApiKey() {
-            const savedKey = localStorage.getItem('bixius_yt_api_key') || "";
-            document.getElementById('inputApiKey').value = savedKey;
-            
-            const msg = document.getElementById('apiStatusMessage');
-            if(savedKey) {
-                msg.innerText = "Chiave memorizzata correttamente in locale.";
-                msg.style.color = "#4caf50";
-            } else {
-                msg.innerText = "Nessuna chiave salvata. Inseriscine una per abilitare i canali YouTube.";
-                msg.style.color = "#ff9800";
-            }
-        }
-
-        // Salvataggio attivato solo alla pressione del pulsante dedicato
-        function saveApiKey() {
-            const keyFieldValue = document.getElementById('inputApiKey').value.trim();
-            const msg = document.getElementById('apiStatusMessage');
-            const btn = document.getElementById('btnSaveApi');
-
-            localStorage.setItem('bixius_yt_api_key', keyFieldValue);
-            
-            if(keyFieldValue) {
-                msg.innerText = "Chiave salvata con successo!";
-                msg.style.color = "#4caf50";
-                btn.style.backgroundColor = "#4caf50";
-                setTimeout(() => { btn.style.backgroundColor = "#333"; }, 1500);
-            } else {
-                msg.innerText = "Chiave rimossa.";
-                msg.style.color = "#ff9800";
-            }
-        }
-
-        function getApiKey() {
-            return localStorage.getItem('bixius_yt_api_key') || "";
-        }
+        let loadedItems = [];
+        let currentVisibleCount = 10;
 
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
@@ -591,36 +504,28 @@
             });
         }
 
-        function renderNextBlock() {
+        function displayItems() {
             const listContainer = document.getElementById('videoList');
-            const totalAvailable = localVideoCache.length;
+            const targetCount = Math.min(currentVisibleCount, loadedItems.length);
             
-            if (currentRenderedCount >= totalAvailable) return false;
-
-            const start = currentRenderedCount;
-            const end = Math.min(start + 10, totalAvailable);
-            const nextBatch = localVideoCache.slice(start, end);
-
-            nextBatch.forEach((item, index) => {
-                if (displayedVideoUrls.has(item.embedUrl)) return;
+            for (let i = listContainer.children.length; i < targetCount; i++) {
+                const item = loadedItems[i];
+                if (displayedVideoUrls.has(item.embedUrl)) continue;
                 displayedVideoUrls.add(item.embedUrl);
 
                 const card = document.createElement('div');
                 card.className = 'video-card';
                 card.onclick = () => launchVideo(item.embedUrl, item.title);
-                card.style.animationDelay = `${index * 40}ms`;
+                card.style.animationDelay = `${(i % 10) * 40}ms`;
                 
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">YouTube • Video Recente</div>
+                        <div class="v-meta">Contenuto Recente</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
-            });
-
-            currentRenderedCount = end;
-            return true;
+            }
         }
 
         async function selectChannel(id) {
@@ -633,17 +538,42 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero in corso...</p>';
-            document.getElementById('loadingIndicator').style.display = 'none';
-
-            activeChannelId = id;
-            localVideoCache = [];
-            currentRenderedCount = 0;
-            nextPageToken = "";
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero feed in corso...</p>';
+            
+            loadedItems = [];
+            currentVisibleCount = 10;
             displayedVideoUrls.clear();
 
             if (channel.platform === 'youtube_channel') {
-                await fetchYouTubeBatch(channel.sourceId, false);
+                try {
+                    const feedUrl = encodeURIComponent(`https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`);
+                    const res = await fetch(`https://api.allorigins.win/get?url=${feedUrl}`);
+                    const data = await res.json();
+                    
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(data.contents, "text/xml");
+                    const entries = xmlDoc.getElementsByTagName("entry");
+
+                    if(entries.length === 0) {
+                        listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Nessun video trovato o feed non accessibile.</p>';
+                        return;
+                    }
+
+                    for (let i = 0; i < entries.length; i++) {
+                        const title = entries[i].getElementsByTagName("title")[0].textContent;
+                        const videoId = entries[i].getElementsByTagName("yt:videoId")[0].textContent;
+                        loadedItems.push({
+                            title: title,
+                            embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
+                        });
+                    }
+                    
+                    listContainer.innerHTML = '';
+                    displayItems();
+
+                } catch (err) {
+                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore nel caricamento del feed RSS.</p>';
+                }
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
                 const isPlaylist = channel.sourceId.startsWith('PL');
@@ -661,96 +591,20 @@
                 card.onclick = () => window.open(`https://www.twitch.tv/${channel.sourceId}/videos`, '_blank');
                 card.innerHTML = `
                     <div class="info-area">
-                        <div class="v-title">Apri i Video e la Live di ${channel.name} su App Esterna</div>
-                        <div class="v-meta">Devia navigazione su piattaforma esterna Twitch</div>
+                        <div class="v-title">Apri i Video e la Live di ${channel.name} su Twitch</div>
+                        <div class="v-meta">Piattaforma Esterna</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
             }
         }
 
-        async function fetchYouTubeBatch(ucId, appendNetwork = false) {
-            const listContainer = document.getElementById('videoList');
-            const apiKey = getApiKey();
-
-            if (!apiKey) {
-                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--yt-red);">Errore: Salva una chiave API valida nel pannello delle impostazioni (icona ingranaggio)!</p>';
-                return;
-            }
-
-            try {
-                const uuPlaylistId = 'UU' + ucId.trim().substring(2);
-                let apiEndpoint = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=30&playlistId=${uuPlaylistId}&key=${apiKey}`;
-                
-                if (appendNetwork && nextPageToken) {
-                    apiEndpoint += `&pageToken=${nextPageToken}`;
-                }
-
-                const res = await fetch(apiEndpoint);
-                if (!res.ok) {
-                    const errData = await res.json();
-                    throw new Error(errData.error?.message || "Errore API");
-                }
-
-                const data = await res.json();
-                nextPageToken = data.nextPageToken || "";
-
-                let tempArray = [];
-                if (data.items && data.items.length > 0) {
-                    data.items.forEach(item => {
-                        const snippet = item.snippet;
-                        const videoId = snippet?.resourceId?.videoId;
-                        if (videoId) {
-                            tempArray.push({
-                                title: snippet.title || "YouTube Video",
-                                embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
-                            });
-                        }
-                    });
-                }
-
-                if (!appendNetwork) {
-                    listContainer.innerHTML = '';
-                    localVideoCache = tempArray;
-                } else {
-                    localVideoCache = localVideoCache.concat(tempArray);
-                }
-
-                renderNextBlock();
-
-            } catch (err) {
-                console.error("[DEBUG] Errore API:", err);
-                if (!appendNetwork) {
-                    listContainer.innerHTML = `<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare i video: ${err.message}</p>`;
-                }
-            }
-        }
-
-        window.onscroll = async function() {
-            if (!activeChannelId) return;
-
-            const channel = channels.find(c => c.id === activeChannelId);
-            if (!channel || channel.platform !== 'youtube_channel') return;
-
-            if ((window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 150) {
-                if (isProcessingScroll) return;
-                isProcessingScroll = true;
-
-                if (currentRenderedCount < localVideoCache.length) {
-                    document.getElementById('loadingIndicator').style.display = 'block';
-                    setTimeout(() => {
-                        renderNextBlock();
-                        document.getElementById('loadingIndicator').style.display = 'none';
-                        isProcessingScroll = false;
-                    }, 200); 
-                } 
-                else if (nextPageToken) {
-                    document.getElementById('loadingIndicator').style.display = 'block';
-                    await fetchYouTubeBatch(channel.sourceId, true);
-                    document.getElementById('loadingIndicator').style.display = 'none';
-                    isProcessingScroll = false;
-                } else {
-                    isProcessingScroll = false;
+        window.onscroll = function() {
+            if (loadedItems.length === 0) return;
+            if ((window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 100) {
+                if (currentVisibleCount < loadedItems.length) {
+                    currentVisibleCount += 5;
+                    displayItems();
                 }
             }
         };
@@ -785,7 +639,6 @@
             if(confirm("Sei sicuro di voler cancellare tutti i canali salvati?")) {
                 channels = [];
                 localStorage.removeItem('bixius_user_channels');
-                activeChannelId = null;
                 renderAppChannels();
                 document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutti i canali sono stati rimossi.</p>';
                 toggleView();
@@ -814,10 +667,7 @@
             navigator.serviceWorker.register('./sw.js').catch(err => console.log("SW Error:", err));
         }
 
-        window.onload = function() {
-            loadApiKey();
-            renderAppChannels();
-        };
+        window.onload = renderAppChannels;
     </script>
 </body>
 </html>
