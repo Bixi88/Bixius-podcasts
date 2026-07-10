@@ -495,6 +495,15 @@
             });
         }
 
+        function getYouTubeIdFromFeedLink(link) {
+            if (!link) return '';
+            if (link.includes('v=')) {
+                return link.split('v=')[1].split('&')[0].trim();
+            }
+            const parts = link.split('/');
+            return parts[parts.length - 1].split('?')[0].trim();
+        }
+
         async function selectChannel(id) {
             document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
             const currentTab = document.getElementById(`app-chan-${id}`);
@@ -522,8 +531,8 @@
                     if (data.status === 'ok' && data.items && data.items.length > 0) {
                         listContainer.innerHTML = '';
                         data.items.forEach(item => {
-                            const videoId = item.link.split('v=')[1]?.split('&')[0] || '';
-                            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+                            const videoId = getYouTubeIdFromFeedLink(item.link);
+                            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`;
                             
                             const card = document.createElement('div');
                             card.className = 'video-card';
@@ -537,7 +546,6 @@
                             listContainer.appendChild(card);
                         });
                     } else {
-                        // Fallback se l'id basato su user stringa fallisce (cerchiamo via scraping alternativo sul feed standard)
                         const altFeed = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent('https://www.youtube.com/feeds/videos.xml?channel_id=' + channel.sourceId)}`;
                         const resAlt = await fetch(altFeed);
                         const dataAlt = await resAlt.json();
@@ -545,10 +553,10 @@
                         if(dataAlt.status === 'ok' && dataAlt.items) {
                             listContainer.innerHTML = '';
                             dataAlt.items.forEach(item => {
-                                const videoId = item.link.split('v=')[1]?.split('&')[0] || '';
+                                const videoId = getYouTubeIdFromFeedLink(item.link);
                                 const card = document.createElement('div');
                                 card.className = 'video-card';
-                                card.onclick = () => launchVideo(`https://www.youtube.com/embed/${videoId}?autoplay=1`, item.title);
+                                card.onclick = () => launchVideo(`https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`, item.title);
                                 card.innerHTML = `<div class="info-area"><div class="v-title">${item.title}</div><div class="v-meta">YouTube</div></div>`;
                                 listContainer.appendChild(card);
                             });
@@ -571,25 +579,22 @@
                 listContainer.appendChild(card);
             } else if (channel.platform === 'twitch') {
                 listContainer.innerHTML = '';
-                // Soluzione pulita per Twitch ovviando alle restrizioni CORS della console
-                const options = [
-                    { title: `Guarda lo Stream in Diretta di ${channel.name}`, url: `https://player.twitch.tv/?channel=${channel.sourceId}&parent=${CURRENT_DOMAIN}&autoplay=true`, internal: true },
-                    { title: `Apri l'elenco dei Video Registrati / VOD su Twitch`, url: `https://www.twitch.tv/${channel.sourceId}/videos`, internal: false }
-                ];
-
-                options.forEach(o => {
-                    const card = document.createElement('div');
-                    card.className = 'video-card';
-                    card.onclick = () => o.internal ? launchVideo(o.url, channel.name) : window.open(o.url, '_blank');
-                    card.innerHTML = `<div class="info-area"><div class="v-title">${o.title}</div><div class="v-meta">Twitch Platform</div></div>`;
-                    listContainer.appendChild(card);
-                });
+                // Rimosso qualsiasi automatismo sul player in alto. Genera solo il tasto per aprire Twitch esternamente.
+                const card = document.createElement('div');
+                card.className = 'video-card';
+                card.onclick = () => window.open(`https://www.twitch.tv/${channel.sourceId}/videos`, '_blank');
+                card.innerHTML = `
+                    <div class="info-area">
+                        <div class="v-title">Apri l'elenco dei Video Registrati / VOD su Twitch</div>
+                        <div class="v-meta">Clicca per aprire l'applicazione esterna • Twitch</div>
+                    </div>
+                `;
+                listContainer.appendChild(card);
             }
         }
 
         function launchVideo(url, title) {
             const wrapper = document.getElementById('playerWrapper');
-            // Integrazione pulita senza restrizioni di sandbox asfissianti
             wrapper.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe>`;
             document.getElementById('marqueeText').innerHTML = `<p>NOW PLAYING: ${title.toUpperCase()}</p><p>NOW PLAYING: ${title.toUpperCase()}</p>`;
         }
