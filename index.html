@@ -407,14 +407,14 @@
             <div class="form-group">
                 <label>Piattaforma</label>
                 <select id="inputPlatform" class="form-control" onchange="updatePlaceholder()">
-                    <option value="youtube_channel">YouTube (ID Canale UC... o Handle @)</option>
+                    <option value="youtube_channel">YouTube (Solo ID Canale UC...)</option>
                     <option value="youtube_video">YouTube (ID Singolo Video o Playlist ID)</option>
                     <option value="twitch">Twitch (Nome Utente Canale)</option>
                 </select>
             </div>
             <div class="form-group">
-                <label id="idLabel">ID Canale UC... o @Handle</label>
-                <input type="text" id="inputId" class="form-control" placeholder="Incolla qui...">
+                <label id="idLabel">ID Canale UC...</label>
+                <input type="text" id="inputId" class="form-control" placeholder="Incolla l'ID qui...">
             </div>
             <div class="btn-row">
                 <button class="btn btn-secondary" onclick="toggleView()">Chiudi</button>
@@ -438,8 +438,8 @@
                 label.innerText = "Nome Utente Twitch (Es: pregianza)";
                 input.placeholder = "pregianza";
             } else if (platform === 'youtube_channel') {
-                label.innerText = "ID Canale UC... o Handle @Nome";
-                input.placeholder = "@IlPregianza o UCxxxxxx";
+                label.innerText = "ID Canale YouTube UC... (Metti direttamente l'ID)";
+                input.placeholder = "UCxxxxxxxxxxxxxxxxx";
             } else {
                 label.innerText = "ID Video Singolo o ID Playlist (Es: PL...)";
                 input.placeholder = "Incolla l'ID...";
@@ -461,9 +461,7 @@
                     clean = clean.split('list=')[1].split('&')[0];
                 }
             } else if (platform === 'youtube_channel') {
-                if (clean.includes('/@')) {
-                    clean = '@' + clean.split('/@')[1].split('/')[0].split('?')[0];
-                } else if (clean.includes('youtube.com/channel/')) {
+                if (clean.includes('youtube.com/channel/')) {
                     clean = clean.split('youtube.com/channel/')[1].split('/')[0].split('?')[0];
                 }
             }
@@ -524,77 +522,76 @@
             listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Caricamento tempo reale (Ultimi 30 video)...</p>';
 
             if (channel.platform === 'youtube_channel') {
-                const target = channel.sourceId.trim();
-                let urlYouTube = target.startsWith('UC') 
-                    ? `https://www.youtube.com/channel/${target}/videos`
-                    : `https://www.youtube.com/${target.startsWith('@') ? target : '@' + target}/videos`;
+                const ucId = channel.sourceId.trim();
+                
+                if (ucId.startsWith('UC')) {
+                    // Trasformiamo l'ID Canale (UC...) nell'ID Playlist dei Caricamenti del canale (UU...)
+                    const uuPlaylistId = 'UU' + ucId.substring(2);
+                    const feedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
+                    
+                    // Strategia Multi-Proxy per evitare timeout o blocchi CORS
+                    const proxies = [
+                        `https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`,
+                        `https://corsproxy.io/?${encodeURIComponent(feedUrl)}`
+                    ];
 
-                // Strategia Multi-Proxy per evitare blocchi e bypassare il tetto dei 15 dell'RSS
-                const proxies = [
-                    `https://api.allorigins.win/get?url=${encodeURIComponent(urlYouTube)}`,
-                    `https://corsproxy.io/?${encodeURIComponent(urlYouTube)}`
-                ];
+                    let xmlText = null;
 
-                let htmlContent = null;
-
-                for (let proxyUrl of proxies) {
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 3500); // Failover rapido se un proxy è lento
-                        
-                        const res = await fetch(proxyUrl, { signal: controller.signal });
-                        clearTimeout(timeoutId);
-                        
-                        if (res.ok) {
-                            const data = await res.json().catch(() => null);
-                            htmlContent = data && data.contents ? data.contents : await res.text();
-                            if (htmlContent && htmlContent.includes('ytInitialData')) break;
+                    for (let proxyUrl of proxies) {
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 3000); // Failover rapido se un proxy è lento
+                            
+                            const res = await fetch(proxyUrl, { signal: controller.signal });
+                            clearTimeout(timeoutId);
+                            
+                            if (res.ok) {
+                                if (proxyUrl.includes('allorigins')) {
+                                    const data = await res.json();
+                                    xmlText = data.contents;
+                                } else {
+                                    xmlText = await res.text();
+                                }
+                                if (xmlText && xmlText.includes('<entry>')) break;
+                            }
+                        } catch (e) {
+                            console.log("Proxy lento o fallito, passo al successivo...");
                         }
-                    } catch (e) {
-                        console.log("Proxy fallito, tento il successivo...");
                     }
-                }
 
-                if (htmlContent) {
-                    try {
-                        // Estrazione sicura senza regex rigide che si rompono
-                        const splitLeft = htmlContent.split('var ytInitialData =');
-                        if (splitLeft.length > 1) {
-                            const splitRight = splitLeft[1].split(';</script>');
-                            let rawJson = splitRight[0].trim();
-                            
-                            // Sanificazione nel caso in cui ci siano rifiniture nell'oggetto YouTube
-                            if(rawJson.endsWith(';')) rawJson = rawJson.slice(0, -1);
-                            
-                            const jsonObj = JSON.parse(rawJson);
-                            const tabs = jsonObj.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
-                            const videoTab = tabs.find(t => t.tabRenderer?.selected || t.tabRenderer?.title === "Video" || t.tabRenderer?.endpoint?.browseEndpoint?.canonicalBaseUrl?.includes('/videos'));
-                            const gridItems = videoTab?.tabRenderer?.content?.richGridRenderer?.contents || [];
+                    if (xmlText) {
+                        try {
+                            const parser = new DOMParser();
+                            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                            const entries = xmlDoc.getElementsByTagName("entry");
                             
                             let parsedVideos = [];
-                            gridItems.forEach(item => {
-                                let videoData = item.richItemRenderer?.content?.videoRenderer;
-                                if (videoData && videoData.videoId) {
+                            for (let i = 0; i < entries.length; i++) {
+                                const entry = entries[i];
+                                const title = entry.getElementsByTagName("title")[0]?.textContent || "Video";
+                                const videoId = entry.getElementsByTagName("yt:videoId")[0]?.textContent;
+                                
+                                if (videoId) {
                                     parsedVideos.push({
-                                        title: videoData.title?.runs?.[0]?.text || videoData.title?.simpleText || "Video",
-                                        embedUrl: `https://www.youtube.com/embed/${videoData.videoId}?autoplay=1&modestbranding=1&rel=0`
+                                        title: title,
+                                        embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
                                     });
                                 }
-                            });
+                            }
 
                             if (parsedVideos.length > 0) {
-                                // Mostriamo esattamente fino a 30 video presi nativamente dalla griglia YouTube
+                                // Sfrutta l'elenco completo fino a 30 video generati dall'XML UU
                                 renderVideoCards(parsedVideos.slice(0, 30), listContainer);
                                 return;
                             }
+                        } catch (err) {
+                            console.error("Errore nel parsing XML nativo:", err);
                         }
-                    } catch (err) {
-                        console.error("Errore nel parsing dei dati nativi:", err);
                     }
                 }
                 
-                // Fallback finale di sicurezza se lo scraping completo fallisce (almeno mostra i 15 dell'RSS standard)
-                await fetchFallbackRSS(target, listContainer);
+                // Fallback finale di sicurezza se la procedura principale fallisce completamente
+                await fetchFallbackClassicRSS(ucId, listContainer);
 
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
@@ -621,12 +618,9 @@
             }
         }
 
-        async function fetchFallbackRSS(target, listContainer) {
+        async function fetchFallbackClassicRSS(ucId, listContainer) {
             try {
-                let feedUrl = target.startsWith('UC') 
-                    ? `https://www.youtube.com/feeds/videos.xml?channel_id=${target}`
-                    : `https://www.youtube.com/feeds/videos.xml?user=${target.replace('@', '')}`;
-                
+                const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
                 const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
                 const data = await res.json();
                 if (data.status === 'ok' && data.items && data.items.length > 0) {
@@ -639,7 +633,7 @@
                     });
                     renderVideoCards(fallbackVideos, listContainer);
                 } else {
-                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile recuperare i contenuti in questo momento.</p>';
+                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare i video per questo canale.</p>';
                 }
             } catch(e) {
                 listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore di connessione.</p>';
