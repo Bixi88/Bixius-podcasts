@@ -442,7 +442,6 @@
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
         let displayedVideoUrls = new Set();
-        let currentFastCount = 0;
 
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
@@ -503,44 +502,32 @@
             });
         }
 
-        function appendVideoCards(videoArray, listContainer, isAppendOnly = false) {
-            if (!isAppendOnly) {
-                listContainer.innerHTML = '';
-                displayedVideoUrls.clear();
-                currentFastCount = 0;
-            }
+        function appendVideoCards(videoArray, listContainer) {
+            listContainer.innerHTML = '';
+            displayedVideoUrls.clear();
 
             if (!videoArray || videoArray.length === 0) {
-                if (!isAppendOnly) listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Nessun contenuto recente trovato.</p>';
+                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Nessun contenuto recente trovato.</p>';
                 return;
             }
 
-            let animatedIndex = 0;
-            videoArray.forEach((item) => {
+            videoArray.forEach((item, index) => {
                 if (displayedVideoUrls.has(item.embedUrl)) return;
-                
                 displayedVideoUrls.add(item.embedUrl);
 
                 const card = document.createElement('div');
                 card.className = 'video-card';
                 card.onclick = () => launchVideo(item.embedUrl, item.title);
-                
-                let delayMultiplier = isAppendOnly ? (currentFastCount + animatedIndex) : animatedIndex;
-                card.style.animationDelay = `${delayMultiplier * 70}ms`;
+                card.style.animationDelay = `${index * 50}ms`;
                 
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">YouTube • Video Recente</div>
+                        <div class="v-meta">YouTube • Contenuto Recente</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
-                animatedIndex++;
             });
-
-            if (!isAppendOnly) {
-                currentFastCount = animatedIndex;
-            }
         }
 
         async function selectChannel(id) {
@@ -553,109 +540,67 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero in corso...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Aggiornamento feed in corso...</p>';
 
             if (channel.platform === 'youtube_channel') {
                 const ucId = channel.sourceId.trim();
                 if (!ucId.startsWith('UC')) return;
                 
-                let initialLoadSuccess = false;
-                let masterVideoList = [];
+                let mergedVideos = [];
+                const seenIds = new Set();
 
-                // --- FASE 1: FEED RSS RAPIDO (Sempre funzionante senza proxy) ---
+                // Eseguiamo le chiamate ai due feed RSS stabili di YouTube in parallelo (più veloce!)
                 try {
-                    const fastUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(`https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`)}`;
-                    const res = await fetch(fastUrl);
-                    const data = await res.json();
-                    if (data.status === 'ok' && data.items?.length > 0) {
-                        masterVideoList = data.items.map(item => {
-                            let vId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : item.link.split('/').pop();
-                            return {
-                                title: item.title,
-                                embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
-                            };
-                        });
-                        appendVideoCards(masterVideoList, listContainer, false);
-                        initialLoadSuccess = true;
-                        console.log(`[DEBUG] Fase 1 OK. Caricati ${masterVideoList.length} video dal feed RSS.`);
+                    const channelFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
+                    const uuPlaylistId = 'UU' + ucId.substring(2);
+                    const playlistFeedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
+
+                    const [res1, res2] = await Promise.all([
+                        fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(channelFeedUrl)}`).catch(e => null),
+                        fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(playlistFeedUrl)}`).catch(e => null)
+                    ]);
+
+                    // Elaborazione Feed 1 (Canale standard, Video recenti e Shorts)
+                    if (res1 && res1.ok) {
+                        const data1 = await res1.json();
+                        if (data1.status === 'ok' && data1.items) {
+                            data1.items.forEach(item => {
+                                let vId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : item.link.split('/').pop();
+                                if (vId && !seenIds.has(vId)) {
+                                    seenIds.add(vId);
+                                    mergedVideos.push({
+                                        title: item.title,
+                                        embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
+                                    });
+                                }
+                            });
+                        }
                     }
-                } catch (e) {
-                    console.warn("[DEBUG] Fase 1 fallita", e);
+
+                    // Elaborazione Feed 2 (Playlist uploads UU, Video Longform storici)
+                    if (res2 && res2.ok) {
+                        const data2 = await res2.json();
+                        if (data2.status === 'ok' && data2.items) {
+                            data2.items.forEach(item => {
+                                let vId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : item.link.split('/').pop();
+                                if (vId && !seenIds.has(vId)) {
+                                    seenIds.add(vId);
+                                    mergedVideos.push({
+                                        title: item.title,
+                                        embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
+                                    });
+                                }
+                            });
+                        }
+                    }
+
+                    console.log(`[DEBUG] Doppio Feed RSS caricato con successo. Elementi unici trovati: ${mergedVideos.length}`);
+                    appendVideoCards(mergedVideos, listContainer);
+
+                } catch (globalErr) {
+                    console.error("[DEBUG] Errore nel caricamento dei Feed RSS:", globalErr);
+                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore di connessione durante il recupero dei video.</p>';
                 }
-
-                // --- FASE 2: SCRAPING DI EMERGENZA AD ALTA TOLLERANZA ---
-                setTimeout(async () => {
-                    const uuId = 'UU' + ucId.substring(2);
-                    const targetUrl = `https://www.youtube.com/playlist?list=${uuId}`;
-                    
-                    // Lista proxy con fallback di testo diretto per evitare crash di parsing JSON
-                    const proxies = [
-                        `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
-                        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-                        `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`
-                    ];
-
-                    let htmlContent = null;
-
-                    for (let proxy of proxies) {
-                        try {
-                            console.log(`[DEBUG] Tentativo proxy deep parse su: ${proxy.substring(0, 40)}...`);
-                            const res = await fetch(proxy);
-                            if (!res.ok) continue;
-                            
-                            const rawData = await res.text();
-                            
-                            // Gestiamo AllOrigins che incapsula tutto in una proprietà .contents
-                            if (proxy.includes("allorigins")) {
-                                const parsedObj = JSON.parse(rawData);
-                                htmlContent = parsedObj.contents;
-                            } else {
-                                htmlContent = rawData;
-                            }
-
-                            if (htmlContent && htmlContent.length > 20000) {
-                                console.log(`[DEBUG] Proxy riuscito! Ricevuti ${htmlContent.length} caratteri.`);
-                                break;
-                            }
-                        } catch (err) {
-                            console.warn(`[DEBUG] Questo proxy ha fallito:`, err.message);
-                        }
-                    }
-
-                    if (htmlContent) {
-                        const seenIds = new Set(masterVideoList.map(v => v.embedUrl.split('/embed/')[1].split('?')[0]));
-                        let deepVideos = [...masterVideoList];
-
-                        // Estrazione Ultra-Semplificata: Trova tutti i frammenti video reali nell'HTML dell'oggetto video di YouTube
-                        // Cerca una corrispondenza sequenziale vicina tra videoId e stringa di testo successiva senza nodi rigidi
-                        const fallbackRegex = /"videoId"\s*:\s*"([A-Za-z0-9_-]{11})"[^}]+?"text"\s*:\s*"([^"]{5,100}?)"/g;
-                        let match;
-                        
-                        while ((match = fallbackRegex.exec(htmlContent)) !== null) {
-                            const videoId = match[1];
-                            let title = match[2].replace(/\\u([\dA-Fa-f]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-                            
-                            // Evitiamo keyword di sistema o stringhe spazzatura di YouTube
-                            if (title.includes("观看") || title.includes("views") || title.includes("iscritto") || title.length < 5) continue;
-
-                            if (!seenIds.has(videoId)) {
-                                seenIds.add(videoId);
-                                deepVideos.push({
-                                    title: title,
-                                    embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
-                                });
-                            }
-                        }
-
-                        if (deepVideos.length > masterVideoList.length) {
-                            appendVideoCards(deepVideos.slice(0, 45), listContainer, false);
-                            console.log(`[DEBUG] Fase 2 completata con successo! Lista estesa a ${deepVideos.length} elementi.`);
-                            return;
-                        }
-                    }
-
-                    console.warn("[DEBUG] Deep scraping completato senza ulteriori nuovi video.");
-                }, 300);
 
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
