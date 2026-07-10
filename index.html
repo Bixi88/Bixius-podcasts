@@ -561,7 +561,7 @@
                 if (ucId.startsWith('UC')) {
                     let initialLoadSuccess = false;
 
-                    // --- FASE 1: IMMEDIATA (Prende i primi 10 dal feed RSS rapido via rss2json) ---
+                    // --- FASE 1: CARICAMENTO ISTANTANEO (Mostra subito i primi 10 video) ---
                     try {
                         const fastFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
                         const fastRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(fastFeedUrl)}`);
@@ -579,58 +579,56 @@
                             initialLoadSuccess = true;
                         }
                     } catch (e) {
-                        console.log("Fase rapida fallita o lenta, attendo caricamento esteso...");
+                        console.log("Fase veloce ignorata, attendo il caricamento profondo...");
                     }
 
-                    // --- FASE 2: COMPLEMENTO AD ONDA (Carica l'intera playlist dei caricamenti UU fino a 30 elementi) ---
+                    // --- FASE 2: CARICAMENTO PROFONDO ASINCRONO (Ne scarica 30 totali, aggiungendo i 20 mancanti) ---
                     setTimeout(async () => {
                         const uuPlaylistId = 'UU' + ucId.substring(2);
-                        // Interroghiamo direttamente il feed della playlist delegandolo a un proxy CORS stabile per bypassare i blocchi strutturali
-                        const deepFeedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
-                        
-                        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(deepFeedUrl)}`;
+                        const playlistWebUrl = `https://www.youtube.com/playlist?list=${uuPlaylistId}`;
+                        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(playlistWebUrl)}`;
 
                         try {
                             const res = await fetch(proxyUrl);
                             if (res.ok) {
                                 const data = await res.json();
-                                const xmlText = data.contents;
+                                const htmlContent = data.contents;
                                 
-                                if (xmlText && xmlText.includes('<entry>')) {
-                                    const parser = new DOMParser();
-                                    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-                                    const entries = xmlDoc.getElementsByTagName("entry");
+                                const regex = /ytInitialData\s*=\s*({.+?});/;
+                                const match = htmlContent.match(regex);
+                                if (match) {
+                                    const ytData = JSON.parse(match[1]);
+                                    const contents = ytData.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents?.[0]?.playlistVideoListRenderer?.contents;
                                     
-                                    let deepParsedVideos = [];
-                                    for (let i = 0; i < entries.length; i++) {
-                                        const entry = entries[i];
-                                        const title = entry.getElementsByTagName("title")[0]?.textContent || "Video";
-                                        const videoId = entry.getElementsByTagName("yt:videoId")[0]?.textContent;
+                                    if (contents && contents.length > 0) {
+                                        let deepParsedVideos = [];
                                         
-                                        if (videoId) {
-                                            deepParsedVideos.push({
-                                                title: title,
-                                                embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
-                                            });
+                                        for (let item of contents) {
+                                            const videoRenderer = item.playlistVideoRenderer;
+                                            if (videoRenderer && videoRenderer.videoId) {
+                                                const title = videoRenderer.title?.runs?.[0]?.text || "YouTube Video";
+                                                deepParsedVideos.push({
+                                                    title: title,
+                                                    embedUrl: `https://www.youtube.com/embed/${videoRenderer.videoId}?autoplay=1&modestbranding=1&rel=0`
+                                                });
+                                            }
                                         }
-                                    }
 
-                                    if (deepParsedVideos.length > 0) {
-                                        // Estendiamo fino a un tetto massimo di 30 video.
-                                        // I primi 10 inseriti prima restano immobili e non si duplicano, i restanti 20 si aggiungono in coda fluidamente.
-                                        appendVideoCards(deepParsedVideos.slice(0, 30), listContainer, initialLoadSuccess);
-                                        return;
+                                        if (deepParsedVideos.length > 0) {
+                                            appendVideoCards(deepParsedVideos.slice(0, 30), listContainer, initialLoadSuccess);
+                                            return;
+                                        }
                                     }
                                 }
                             }
                         } catch (err) {
-                            console.error("Errore nel recupero della tranche estesa:", err);
+                            console.error("Errore nel recupero profondo HTML:", err);
                         }
 
                         if (!initialLoadSuccess) {
                             listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile aggiornare l\'archivio video.</p>';
                         }
-                    }, 50);
+                    }, 100);
                 }
 
             } else if (channel.platform === 'youtube_video') {
