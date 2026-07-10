@@ -558,134 +558,99 @@
             if (channel.platform === 'youtube_channel') {
                 const ucId = channel.sourceId.trim();
                 
-                if (ucId.startsWith('UC')) {
-                    let initialLoadSuccess = false;
+                if (!ucId.startsWith('UC')) return;
+                let initialLoadSuccess = false;
 
-                    // --- FASE 1: VELOCE (Feed RSS standard da 10 elementi via rss2json) ---
-                    try {
-                        const fastFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
-                        const fastRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(fastFeedUrl)}`);
-                        const fastData = await fastRes.json();
-                        
-                        if (fastData.status === 'ok' && fastData.items && fastData.items.length > 0) {
-                            const fastParsed = fastData.items.slice(0, 10).map(item => {
-                                let vId = item.link.includes('v=') ? item.link.split('v=')[1].split('&')[0] : item.link.split('/').pop();
-                                return {
-                                    title: item.title,
-                                    embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
-                                };
-                            });
-                            appendVideoCards(fastParsed, listContainer, false);
-                            initialLoadSuccess = true;
-                            console.log("[DEBUG] Fase 1 completata. Stampati 10 video.");
-                        }
-                    } catch (e) {
-                        console.warn("[DEBUG] Fase 1 fallita:", e);
+                // --- FASE 1: VELOCE (Feed RSS standard da 15 elementi via rss2json) ---
+                try {
+                    const fastUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(`https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`)}`;
+                    const res = await fetch(fastUrl);
+                    const data = await res.json();
+                    if (data.status === 'ok' && data.items?.length > 0) {
+                        const videos = data.items.slice(0, 15).map(item => {
+                            let vId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : item.link.split('/').pop();
+                            return {
+                                title: item.title,
+                                embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
+                            };
+                        });
+                        appendVideoCards(videos, listContainer, false);
+                        initialLoadSuccess = true;
+                        console.log(`[DEBUG] Fase 1 OK → ${videos.length} video stampati subito.`);
                     }
+                } catch (e) {
+                    console.warn("[DEBUG] Fase 1 fallita o lenta", e);
+                }
 
-                    // --- FASE 2: DEEP PARSING SEPARATO AD ALTA STABILITÀ ---
-                    setTimeout(async () => {
-                        const uuPlaylistId = 'UU' + ucId.substring(2);
-                        const playlistWebUrl = `https://www.youtube.com/playlist?list=${uuPlaylistId}`;
-                        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(playlistWebUrl)}`;
+                // --- FASE 2: DEEP CARCASS CON MULTI-PROXY IBRIDO (Lettura JSON + Testo) ---
+                setTimeout(async () => {
+                    const uuId = 'UU' + ucId.substring(2);
+                    const targetUrl = `https://www.youtube.com/playlist?list=${uuId}`;
+                    const proxies = [
+                        { url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`, type: 'json' },
+                        { url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`, type: 'text' },
+                        { url: `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, type: 'text' }
+                    ];
 
-                        console.log("[DEBUG] Avvio Fase 2 su URL:", playlistWebUrl);
+                    let htmlContent = null;
 
+                    for (let proxy of proxies) {
                         try {
-                            const res = await fetch(proxyUrl);
-                            if (!res.ok) throw new Error("Risposta proxy non OK: " + res.status);
+                            console.log(`[DEBUG] Tentativo proxy: ${proxy.url.split('?')[0]}`);
+                            const res = await fetch(proxy.url);
+                            if (!res.ok) continue;
                             
-                            const data = await res.json();
-                            const htmlContent = data.contents;
-                            
-                            if (!htmlContent) {
-                                console.error("[DEBUG] Errore: Il proxy ha restituito un oggetto vuoto.");
-                                return;
-                            }
-                            
-                            console.log("[DEBUG] Lunghezza HTML scaricato:", htmlContent.length);
-
-                            let deepParsedVideos = [];
-                            const seenIds = new Set();
-
-                            // Isoliamo tutti i frammenti JSON dei singoli video per evitare Catastrophic Backtracking
-                            const chunkRegex = /"playlistVideoRenderer"\s*:\s*\{[\s\S]*?\}(?=\s*,\s*"|\]\s*\}\s*,\s*\{)/g;
-                            let chunkMatch;
-                            let totalChunksFound = 0;
-
-                            while ((chunkMatch = chunkRegex.exec(htmlContent)) !== null) {
-                                totalChunksFound++;
-                                const chunk = chunkMatch[0];
-                                
-                                // Estraiamo ID e Titolo in modo isolato e ultra-veloce dentro il blocco del video
-                                const idMatch = chunk.match(/"videoId"\s*:\s*"([^"]+)"/);
-                                const titleMatch = chunk.match(/"text"\s*:\s*"([^"]+)"/);
-
-                                if (idMatch && idMatch[1]) {
-                                    const videoId = idMatch[1];
-                                    // Se manca il titolo testuale o contiene caratteri di escape, usiamo un fallback pulito
-                                    let title = (titleMatch && titleMatch[1]) ? titleMatch[1] : "YouTube Video";
-                                    
-                                    // Pulizia dei caratteri unicode (es. \u0026 -> &)
-                                    title = title.replace(/\\u([\dA-Fa-f]{4})/g, (_, grp) => String.fromCharCode(parseInt(grp, 16)));
-
-                                    if (!seenIds.has(videoId)) {
-                                        seenIds.add(videoId);
-                                        deepParsedVideos.push({
-                                            title: title,
-                                            embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
-                                        });
-                                    }
-                                }
-                            }
-
-                            console.log(`[DEBUG] Blocchi grezzi trovati nell'HTML: ${totalChunksFound}, Video validi estratti: ${deepParsedVideos.length}`);
-
-                            if (deepParsedVideos.length > 0) {
-                                // Forziamo l'estensione fino a 40 video. Append scarterà i duplicati visivi della fase 1.
-                                appendVideoCards(deepParsedVideos.slice(0, 40), listContainer, initialLoadSuccess);
-                                console.log("[DEBUG] Fase 2 completata con successo ed inserita nell'interfaccia.");
-                                return;
+                            if (proxy.type === 'json') {
+                                const data = await res.json();
+                                htmlContent = data.contents;
                             } else {
-                                console.warn("[DEBUG] La regex non ha estratto video. Provo con il selettore alternativo di griglia...");
-                                
-                                // Fallback se YouTube sta usando il layout a griglia alternativa (richItemRenderer)
-                                const gridChunkRegex = /"richItemRenderer"\s*:\s*\{[\s\S]*?\}(?=\s*,\s*"|\]\s*\}\s*,\s*\{)/g;
-                                while ((chunkMatch = gridChunkRegex.exec(htmlContent)) !== null) {
-                                    const chunk = chunkMatch[0];
-                                    const idMatch = chunk.match(/"videoId"\s*:\s*"([^"]+)"/);
-                                    const titleMatch = chunk.match(/"text"\s*:\s*"([^"]+)"/);
+                                htmlContent = await res.text();
+                            }
 
-                                    if (idMatch && idMatch[1]) {
-                                        const videoId = idMatch[1];
-                                        let title = (titleMatch && titleMatch[1]) ? titleMatch[1] : "YouTube Video";
-                                        title = title.replace(/\\u([\dA-Fa-f]{4})/g, (_, grp) => String.fromCharCode(parseInt(grp, 16)));
-
-                                        if (!seenIds.has(videoId)) {
-                                            seenIds.add(videoId);
-                                            deepParsedVideos.push({
-                                                title: title,
-                                                embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
-                                            });
-                                        }
-                                    }
-                                }
-                                
-                                console.log(`[DEBUG] Tentativo di griglia alternativa completato. Totale video: ${deepParsedVideos.length}`);
-                                if (deepParsedVideos.length > 0) {
-                                    appendVideoCards(deepParsedVideos.slice(0, 40), listContainer, initialLoadSuccess);
-                                    return;
-                                }
+                            if (typeof htmlContent === 'string' && htmlContent.length > 30000) {
+                                console.log(`[DEBUG] Proxy riuscito! HTML caricato: ${htmlContent.length} caratteri.`);
+                                break;
                             }
                         } catch (err) {
-                            console.error("[DEBUG] Errore critico in Fase 2:", err);
+                            console.warn(`[DEBUG] Proxy fallito:`, err.message);
+                        }
+                    }
+
+                    if (htmlContent && typeof htmlContent === 'string') {
+                        let deepVideos = [];
+                        const seen = new Set();
+                        
+                        // Regex universale ultra-resistente basata sull'occorrenza vicina di videoId e titolo testuale
+                        const regex = /"videoId"\s*:\s*"([A-Za-z0-9_-]{11})"[\s\S]{0,600}?"text"\s*:\s*"([^"]{5,120}?")/g;
+                        let match;
+                        while ((match = regex.exec(htmlContent)) !== null) {
+                            const videoId = match[1];
+                            let title = match[2].replace(/\\u([\dA-Fa-f]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+                            
+                            // Togliamo le virgolette finali se rimaste intrappolate dalla regex
+                            if (title.endsWith('"')) title = title.slice(0, -1);
+
+                            if (!seen.has(videoId)) {
+                                seen.add(videoId);
+                                deepVideos.push({
+                                    title: title || "YouTube Video",
+                                    embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
+                                });
+                            }
                         }
 
-                        if (!initialLoadSuccess) {
-                            listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile aggiornare l\'archivio video.</p>';
+                        if (deepVideos.length > 0) {
+                            appendVideoCards(deepVideos.slice(0, 50), listContainer, initialLoadSuccess);
+                            console.log(`[DEBUG] Fase 2 completata con successo! Trovati ${deepVideos.length} video totali.`);
+                            return;
                         }
-                    }, 200);
-                }
+                    }
+
+                    console.warn("[DEBUG] Tutti i tentativi deep-parse sono falliti.");
+                    if (!initialLoadSuccess) {
+                        listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare i video (Proxy momentaneamente offline).</p>';
+                    }
+                }, 250);
 
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
