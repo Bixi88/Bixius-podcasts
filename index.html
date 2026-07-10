@@ -289,7 +289,7 @@
             
             opacity: 0;
             transform: translateX(-12px);
-            animation: materialFadeIn 0.6s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
+            animation: materialFadeIn 0.5s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
         }
 
         .video-card:hover {
@@ -320,6 +320,14 @@
         .v-meta {
             font-size: 11px;
             color: var(--text-secondary);
+        }
+
+        .loading-indicator {
+            text-align: center;
+            padding: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: none;
         }
 
         .settings-card {
@@ -407,6 +415,7 @@
                 Nessun canale selezionato. Usa l'ingranaggio per configurare la lista.
             </p>
         </div>
+        <div id="loadingIndicator" class="loading-indicator">Caricamento altri contenuti...</div>
     </div>
 
     <div id="settingsPanel" class="container view-panel">
@@ -439,9 +448,21 @@
     </div>
 
     <script>
+        // ==========================================
+        // INCOLLA LA TUA CHIAVE API DI GOOGLE QUI SOTTO:
+        const YOUTUBE_API_KEY = "LA_TUA_CHIAVE_QUI"; 
+        // ==========================================
+
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
         let displayedVideoUrls = new Set();
+        
+        // Caching locale ed infinite-scroll virtuale
+        let activeChannelId = null;
+        let localVideoCache = [];      // Contiene fino a 30 video scaricati dall'API
+        let currentRenderedCount = 0;  // Quanti ne stiamo mostrando a schermo (10, 20, 30...)
+        let nextPageToken = "";        // Token per i successivi 30 video reali
+        let isProcessingScroll = false;
 
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
@@ -502,32 +523,38 @@
             });
         }
 
-        function appendVideoCards(videoArray, listContainer) {
-            listContainer.innerHTML = '';
-            displayedVideoUrls.clear();
+        // Funzione per renderizzare a blocchi di 10
+        function renderNextBlock() {
+            const listContainer = document.getElementById('videoList');
+            const totalAvailable = localVideoCache.length;
+            
+            if (currentRenderedCount >= totalAvailable) return false;
 
-            if (!videoArray || videoArray.length === 0) {
-                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Nessun contenuto recente trovato.</p>';
-                return;
-            }
+            const start = currentRenderedCount;
+            const end = Math.min(start + 10, totalAvailable);
+            const nextBatch = localVideoCache.slice(start, end);
 
-            videoArray.forEach((item, index) => {
+            nextBatch.forEach((item, index) => {
                 if (displayedVideoUrls.has(item.embedUrl)) return;
                 displayedVideoUrls.add(item.embedUrl);
 
                 const card = document.createElement('div');
                 card.className = 'video-card';
                 card.onclick = () => launchVideo(item.embedUrl, item.title);
-                card.style.animationDelay = `${index * 50}ms`;
+                card.style.animationDelay = `${index * 40}ms`;
                 
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">YouTube • Contenuto Recente</div>
+                        <div class="v-meta">YouTube • Video Recente</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
             });
+
+            currentRenderedCount = end;
+            console.log(`[DEBUG] Renderizzati a schermo: ${currentRenderedCount}/${totalAvailable} video.`);
+            return true;
         }
 
         async function selectChannel(id) {
@@ -540,68 +567,18 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Aggiornamento feed in corso...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero in corso...</p>';
+            document.getElementById('loadingIndicator').style.display = 'none';
+
+            // Reset completo dello stato locale
+            activeChannelId = id;
+            localVideoCache = [];
+            currentRenderedCount = 0;
+            nextPageToken = "";
+            displayedVideoUrls.clear();
 
             if (channel.platform === 'youtube_channel') {
-                const ucId = channel.sourceId.trim();
-                if (!ucId.startsWith('UC')) return;
-                
-                let mergedVideos = [];
-                const seenIds = new Set();
-
-                // Eseguiamo le chiamate ai due feed RSS stabili di YouTube in parallelo (più veloce!)
-                try {
-                    const channelFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
-                    const uuPlaylistId = 'UU' + ucId.substring(2);
-                    const playlistFeedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
-
-                    const [res1, res2] = await Promise.all([
-                        fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(channelFeedUrl)}`).catch(e => null),
-                        fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(playlistFeedUrl)}`).catch(e => null)
-                    ]);
-
-                    // Elaborazione Feed 1 (Canale standard, Video recenti e Shorts)
-                    if (res1 && res1.ok) {
-                        const data1 = await res1.json();
-                        if (data1.status === 'ok' && data1.items) {
-                            data1.items.forEach(item => {
-                                let vId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : item.link.split('/').pop();
-                                if (vId && !seenIds.has(vId)) {
-                                    seenIds.add(vId);
-                                    mergedVideos.push({
-                                        title: item.title,
-                                        embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
-                                    });
-                                }
-                            });
-                        }
-                    }
-
-                    // Elaborazione Feed 2 (Playlist uploads UU, Video Longform storici)
-                    if (res2 && res2.ok) {
-                        const data2 = await res2.json();
-                        if (data2.status === 'ok' && data2.items) {
-                            data2.items.forEach(item => {
-                                let vId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : item.link.split('/').pop();
-                                if (vId && !seenIds.has(vId)) {
-                                    seenIds.add(vId);
-                                    mergedVideos.push({
-                                        title: item.title,
-                                        embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
-                                    });
-                                }
-                            });
-                        }
-                    }
-
-                    console.log(`[DEBUG] Doppio Feed RSS caricato con successo. Elementi unici trovati: ${mergedVideos.length}`);
-                    appendVideoCards(mergedVideos, listContainer);
-
-                } catch (globalErr) {
-                    console.error("[DEBUG] Errore nel caricamento dei Feed RSS:", globalErr);
-                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore di connessione durante il recupero dei video.</p>';
-                }
-
+                await fetchYouTubeBatch(channel.sourceId, false);
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
                 const isPlaylist = channel.sourceId.startsWith('PL');
@@ -626,6 +603,96 @@
                 listContainer.appendChild(card);
             }
         }
+
+        async function fetchYouTubeBatch(ucId, appendNetwork = false) {
+            const listContainer = document.getElementById('videoList');
+            if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === "LA_TUA_CHIAVE_QUI") {
+                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--yt-red);">Errore: Incolla l\'API KEY su index.html!</p>';
+                return;
+            }
+
+            try {
+                const uuPlaylistId = 'UU' + ucId.trim().substring(2);
+                // Scarichiamo pacchetti da 30 video per ottimizzare la quota API al 100%
+                let apiEndpoint = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=30&playlistId=${uuPlaylistId}&key=${YOUTUBE_API_KEY}`;
+                
+                if (appendNetwork && nextPageToken) {
+                    apiEndpoint += `&pageToken=${nextPageToken}`;
+                }
+
+                const res = await fetch(apiEndpoint);
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.error?.message || "Errore API");
+                }
+
+                const data = await res.json();
+                nextPageToken = data.nextPageToken || "";
+
+                let tempArray = [];
+                if (data.items && data.items.length > 0) {
+                    data.items.forEach(item => {
+                        const snippet = item.snippet;
+                        const videoId = snippet?.resourceId?.videoId;
+                        if (videoId) {
+                            tempArray.push({
+                                title: snippet.title || "YouTube Video",
+                                embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
+                            });
+                        }
+                    });
+                }
+
+                if (!appendNetwork) {
+                    listContainer.innerHTML = '';
+                    localVideoCache = tempArray;
+                } else {
+                    localVideoCache = localVideoCache.concat(tempArray);
+                }
+
+                // Renderizziamo i primi 10 di questo blocco
+                renderNextBlock();
+
+            } catch (err) {
+                console.error("[DEBUG] Errore API:", err);
+                if (!appendNetwork) {
+                    listContainer.innerHTML = `<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare i video: ${err.message}</p>`;
+                }
+            }
+        }
+
+        // Gestore dello scroll intelligente
+        window.onscroll = async function() {
+            if (!activeChannelId) return;
+
+            const channel = channels.find(c => c.id === activeChannelId);
+            if (!channel || channel.platform !== 'youtube_channel') return;
+
+            // Se siamo vicini al fondo della pagina
+            if ((window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 150) {
+                if (isProcessingScroll) return;
+                isProcessingScroll = true;
+
+                // 1. Controlliamo se abbiamo altri video già pronti nella cache locale
+                if (currentRenderedCount < localVideoCache.length) {
+                    document.getElementById('loadingIndicator').style.display = 'block';
+                    setTimeout(() => {
+                        renderNextBlock();
+                        document.getElementById('loadingIndicator').style.display = 'none';
+                        isProcessingScroll = false;
+                    }, 200); // Piccolo delay artificiale per dare fluidità all'animazione
+                } 
+                // 2. Se la cache locale è vuota ma YouTube ha altre pagine reali, facciamo una nuova chiamata API
+                else if (nextPageToken) {
+                    document.getElementById('loadingIndicator').style.display = 'block';
+                    await fetchYouTubeBatch(channel.sourceId, true);
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                    isProcessingScroll = false;
+                } else {
+                    isProcessingScroll = false;
+                }
+            }
+        };
 
         function launchVideo(url, title) {
             const wrapper = document.getElementById('playerWrapper');
@@ -657,6 +724,7 @@
             if(confirm("Sei sicuro di voler cancellare tutti i canali salvati?")) {
                 channels = [];
                 localStorage.removeItem('bixius_user_channels');
+                activeChannelId = null;
                 renderAppChannels();
                 document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutti i canali sono stati rimossi.</p>';
                 toggleView();
