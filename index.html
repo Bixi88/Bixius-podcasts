@@ -526,7 +526,7 @@
                 card.onclick = () => launchVideo(item.embedUrl, item.title);
                 
                 let delayMultiplier = isAppendOnly ? (currentFastCount + animatedIndex) : animatedIndex;
-                card.style.animationDelay = `${delayMultiplier * 75}ms`;
+                card.style.animationDelay = `${delayMultiplier * 70}ms`;
                 
                 card.innerHTML = `
                     <div class="info-area">
@@ -561,14 +561,14 @@
                 if (ucId.startsWith('UC')) {
                     let initialLoadSuccess = false;
 
-                    // --- FASE 1: IMMEDIATA (Prende i primi 10/15 dal feed rapido RSS) ---
+                    // --- FASE 1: IMMEDIATA (Prende i primi 10 dal feed RSS rapido via rss2json) ---
                     try {
                         const fastFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
                         const fastRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(fastFeedUrl)}`);
                         const fastData = await fastRes.json();
                         
                         if (fastData.status === 'ok' && fastData.items && fastData.items.length > 0) {
-                            const fastParsed = fastData.items.map(item => {
+                            const fastParsed = fastData.items.slice(0, 10).map(item => {
                                 let vId = item.link.includes('v=') ? item.link.split('v=')[1].split('&')[0] : item.link.split('/').pop();
                                 return {
                                     title: item.title,
@@ -579,76 +579,52 @@
                             initialLoadSuccess = true;
                         }
                     } catch (e) {
-                        console.log("Fase veloce ignorata, attendo i dati completi...");
+                        console.log("Fase rapida fallita o lenta, attendo caricamento esteso...");
                     }
 
-                    // --- FASE 2: DEEP CARICAMENTO (Estrae fino a 30 elementi dalla pagina reale della playlist) ---
+                    // --- FASE 2: COMPLEMENTO AD ONDA (Carica l'intera playlist dei caricamenti UU fino a 30 elementi) ---
                     setTimeout(async () => {
                         const uuPlaylistId = 'UU' + ucId.substring(2);
-                        // Interroghiamo direttamente la pagina web della playlist per bypassare i limiti dell'RSS
-                        const playlistWebUrl = `https://www.youtube.com/playlist?list=${uuPlaylistId}`;
+                        // Interroghiamo direttamente il feed della playlist delegandolo a un proxy CORS stabile per bypassare i blocchi strutturali
+                        const deepFeedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
                         
-                        const proxies = [
-                            `https://api.allorigins.win/get?url=${encodeURIComponent(playlistWebUrl)}`,
-                            `https://corsproxy.io/?${encodeURIComponent(playlistWebUrl)}`
-                        ];
+                        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(deepFeedUrl)}`;
 
-                        let htmlContent = null;
-                        for (let proxyUrl of proxies) {
-                            try {
-                                const controller = new AbortController();
-                                const timeoutId = setTimeout(() => controller.abort(), 4000);
-                                const res = await fetch(proxyUrl, { signal: controller.signal });
-                                clearTimeout(timeoutId);
+                        try {
+                            const res = await fetch(proxyUrl);
+                            if (res.ok) {
+                                const data = await res.json();
+                                const xmlText = data.contents;
                                 
-                                if (res.ok) {
-                                    if (proxyUrl.includes('allorigins')) {
-                                        const data = await res.json();
-                                        htmlContent = data.contents;
-                                    } else {
-                                        htmlContent = await res.text();
-                                    }
-                                    if (htmlContent && htmlContent.includes('ytInitialData')) break;
-                                }
-                            } catch (e) {
-                                console.log("Errore proxy, cambio nodo...");
-                            }
-                        }
-
-                        if (htmlContent) {
-                            try {
-                                // Estraiamo il JSON nascosto che contiene i dati dei video di YouTube
-                                const regex = /ytInitialData\s*=\s*({.+?});/;
-                                const match = htmlContent.match(regex);
-                                if (match) {
-                                    const ytData = JSON.parse(match[1]);
-                                    const contents = ytData.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents?.[0]?.playlistVideoListRenderer?.contents;
+                                if (xmlText && xmlText.includes('<entry>')) {
+                                    const parser = new DOMParser();
+                                    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                                    const entries = xmlDoc.getElementsByTagName("entry");
                                     
-                                    if (contents && contents.length > 0) {
-                                        let deepParsedVideos = [];
+                                    let deepParsedVideos = [];
+                                    for (let i = 0; i < entries.length; i++) {
+                                        const entry = entries[i];
+                                        const title = entry.getElementsByTagName("title")[0]?.textContent || "Video";
+                                        const videoId = entry.getElementsByTagName("yt:videoId")[0]?.textContent;
                                         
-                                        for (let item of contents) {
-                                            const videoRenderer = item.playlistVideoRenderer;
-                                            if (videoRenderer && videoRenderer.videoId) {
-                                                const title = videoRenderer.title?.runs?.[0]?.text || "YouTube Video";
-                                                deepParsedVideos.push({
-                                                    title: title,
-                                                    embedUrl: `https://www.youtube.com/embed/${videoRenderer.videoId}?autoplay=1&modestbranding=1&rel=0`
-                                                });
-                                            }
-                                        }
-
-                                        if (deepParsedVideos.length > 0) {
-                                            // Ora abbiamo fino a 100 video estratti, ne tagliamo 30 totali.
-                                            // Quelli già mostrati restano dove sono, gli altri 20 si agganciano sotto!
-                                            appendVideoCards(deepParsedVideos.slice(0, 30), listContainer, initialLoadSuccess);
-                                            return;
+                                        if (videoId) {
+                                            deepParsedVideos.push({
+                                                title: title,
+                                                embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
+                                            });
                                         }
                                     }
+
+                                    if (deepParsedVideos.length > 0) {
+                                        // Estendiamo fino a un tetto massimo di 30 video.
+                                        // I primi 10 inseriti prima restano immobili e non si duplicano, i restanti 20 si aggiungono in coda fluidamente.
+                                        appendVideoCards(deepParsedVideos.slice(0, 30), listContainer, initialLoadSuccess);
+                                        return;
+                                    }
                                 }
-                            } catch (err) {
-                                console.error("Errore nell'estrazione profonda HTML:", err);
                             }
+                        } catch (err) {
+                            console.error("Errore nel recupero della tranche estesa:", err);
                         }
 
                         if (!initialLoadSuccess) {
