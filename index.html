@@ -442,7 +442,6 @@
             }
         }
 
-        // Cerca di estrarre e pulire l'input iniziale prima della risoluzione asincrona
         function cleanInputId(input, platform) {
             let clean = input.trim();
             if (platform === 'twitch') {
@@ -457,48 +456,15 @@
                 } else if (clean.includes('list=')) {
                     clean = clean.split('list=')[1].split('&')[0];
                 }
-            }
-            return clean;
-        }
-
-        // Risoluzione asincrona avanzata per ottenere l'ID UC... da qualsiasi URL/Handle di YouTube
-        async function resolveYouTubeChannelId(input) {
-            let val = input.trim();
-            
-            // Se è già un ID valido UC... restituiscilo direttamente
-            if (val.startsWith('UC') && val.length >= 24) {
-                return val;
-            }
-
-            // Estrae l'handle se viene inserito un URL completo tipo youtube.com/@Nome
-            if (val.includes('/@')) {
-                val = '@' + val.split('/@')[1].split('/')[0].split('?')[0];
-            } else if (val.includes('youtube.com/channel/')) {
-                return val.split('youtube.com/channel/')[1].split('/')[0].split('?')[0];
-            } else if (val.includes('youtube.com/user/')) {
-                val = val.split('youtube.com/user/')[1].split('/')[0].split('?')[0];
-            }
-
-            // Se è un handle o un nome utente, interroghiamo un proxy di scraping per leggere il tag nativo dal codice di YouTube
-            if (val.startsWith('@') || !val.startsWith('UC')) {
-                const searchName = val.replace('@', '');
-                try {
-                    // Utilizziamo le api pubbliche di codetabs o un proxy CORS per estrarre l'ID reale della pagina del canale
-                    const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent('https://www.youtube.com/@' + searchName)}`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        const html = data.contents;
-                        // Cerchiamo l'ID del canale dentro i tag meta o nel testo
-                        const match = html.match(/"channelId":"(UC[^"]+)"/) || html.match(/meta itemprop="channelId" content="(UC[^"]+)"/);
-                        if (match && match[1]) {
-                            return match[1];
-                        }
-                    }
-                } catch (e) {
-                    console.error("Errore nel recupero ID tramite allorigins: ", e);
+            } else if (platform === 'youtube_channel') {
+                // Rimuove spazi e l'eventuale URL iniziale se inserito intero, tenendo solo l'handle o l'ID
+                if (clean.includes('/@')) {
+                    clean = '@' + clean.split('/@')[1].split('/')[0].split('?')[0];
+                } else if (clean.includes('youtube.com/channel/')) {
+                    clean = clean.split('youtube.com/channel/')[1].split('/')[0].split('?')[0];
                 }
             }
-            return val; // Fallback al valore inserito originariamente
+            return clean;
         }
 
         function renderAppChannels() {
@@ -522,20 +488,48 @@
             });
         }
 
-        function getYouTubeIdFromFeedLink(link) {
-            if (!link) return '';
+        function renderVideoCards(videoArray, listContainer) {
+            listContainer.innerHTML = '';
+            videoArray.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'video-card';
+                card.onclick = () => launchVideo(item.embedUrl, item.title);
+                card.innerHTML = `
+                    <div class="info-area">
+                        <div class="v-title">${item.title}</div>
+                        <div class="v-meta">Aggiornato • YouTube</div>
+                    </div>
+                `;
+                listContainer.appendChild(card);
+            });
+        }
+
+        // Funzione di Fallback Se lo scraping profondo fallisce: usa il classico feed RSS (15 video)
+        async function fetchFallbackRSS(sourceId, listContainer) {
             try {
-                const urlObj = new URL(link);
-                const params = new URLSearchParams(urlObj.search);
-                if (params.has('v')) {
-                    return params.get('v').trim();
+                let feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${sourceId}`;
+                if (!sourceId.startsWith('UC')) {
+                    feedUrl = `https://www.youtube.com/feeds/videos.xml?user=${sourceId.replace('@', '')}`;
                 }
-            } catch(e) {}
-            if (link.includes('v=')) {
-                return link.split('v=')[1].split('&')[0].trim();
+                const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
+                const data = await res.json();
+                if (data.status === 'ok' && data.items && data.items.length > 0) {
+                    const fallbackVideos = data.items.map(item => {
+                        let vId = '';
+                        if (item.link.includes('v=')) vId = item.link.split('v=')[1].split('&')[0];
+                        else vId = item.link.split('/').pop();
+                        return {
+                            title: item.title,
+                            embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
+                        };
+                    });
+                    renderVideoCards(fallbackVideos, listContainer);
+                } else {
+                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile recuperare i video. Controlla il link o l\'ID inserito.</p>';
+                }
+            } catch(e) {
+                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore critico di connessione.</p>';
             }
-            const parts = link.split('/');
-            return parts[parts.length - 1].split('?')[0].trim();
         }
 
         async function selectChannel(id) {
@@ -544,47 +538,69 @@
             if(currentTab) currentTab.classList.add('active');
 
             const channel = channels.find(c => c.id === id);
-            document.getElementById('currentChannelTitle').innerText = `Contenuti Recenti: ${channel.name}`;
+            document.getElementById('currentChannelTitle').innerText = `Contenuti di ${channel.name}`;
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Caricamento elementi reali dal Feed...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Caricamento tempo reale (Ultimi 30 video)...</p>';
 
             if (channel.platform === 'youtube_channel') {
-                try {
-                    let feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`;
-                    
-                    // Se per qualche motivo il backend ha conservato una vecchia logica 'user='
-                    if (!channel.sourceId.startsWith('UC') && !channel.sourceId.startsWith('@')) {
-                        feedUrl = `https://www.youtube.com/feeds/videos.xml?user=${channel.sourceId}`;
-                    }
-
-                    const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
-                    const data = await res.json();
-
-                    if (data.status === 'ok' && data.items && data.items.length > 0) {
-                        listContainer.innerHTML = '';
-                        data.items.forEach(item => {
-                            const videoId = getYouTubeIdFromFeedLink(item.link);
-                            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`;
-                            
-                            const card = document.createElement('div');
-                            card.className = 'video-card';
-                            card.onclick = () => launchVideo(embedUrl, item.title);
-                            card.innerHTML = `
-                                <div class="info-area">
-                                    <div class="v-title">${item.title}</div>
-                                    <div class="v-meta">Caricato: ${new Date(item.pubDate).toLocaleDateString()} • YouTube</div>
-                                </div>
-                            `;
-                            listContainer.appendChild(card);
-                        });
-                    } else {
-                        listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare il feed RSS. Rimuovi e riaggiungi il canale per aggiornare la risoluzione automatica.</p>';
-                    }
-                } catch (e) {
-                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore durante la connessione con il Feed RSS.</p>';
+                let targetUrl = '';
+                if (channel.sourceId.startsWith('UC')) {
+                    targetUrl = `https://www.youtube.com/channel/${channel.sourceId}/videos`;
+                } else {
+                    const handle = channel.sourceId.startsWith('@') ? channel.sourceId : '@' + channel.sourceId;
+                    targetUrl = `https://www.youtube.com/${handle}/videos`;
                 }
+
+                try {
+                    // Chiamata proxy CORS stabile ed efficiente per leggere la pagina dei video nativa
+                    const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
+                    if (!response.ok) throw new Error("Proxy offline");
+                    
+                    const data = await response.json();
+                    const html = data.contents;
+                    
+                    // Individuiamo l'oggetto ytInitialData inserito da YouTube nel DOM
+                    const jsonRegex = /var ytInitialData\s*=\s*({.+?});/;
+                    const match = html.match(jsonRegex);
+                    
+                    if (match && match[1]) {
+                        const jsonObj = JSON.parse(match[1]);
+                        
+                        // Navighiamo la struttura ad albero profonda di YouTube per estrarre la griglia dei video caricati
+                        let tabs = jsonObj.contents?.twoColumnBrowseResultsRenderer?.tabs;
+                        let videoTab = tabs?.find(t => t.tabRenderer?.selected || t.tabRenderer?.title === "Video" || t.tabRenderer?.endpoint?.browseEndpoint?.canonicalBaseUrl?.includes('/videos'));
+                        let gridItems = videoTab?.tabRenderer?.content?.richGridRenderer?.contents || [];
+                        
+                        let parsedVideos = [];
+                        
+                        gridItems.forEach(item => {
+                            let videoData = item.richItemRenderer?.content?.videoRenderer;
+                            if (videoData && videoData.videoId) {
+                                parsedVideos.push({
+                                    title: videoData.title?.runs?.[0]?.text || videoData.title?.simpleText || "Video senza titolo",
+                                    embedUrl: `https://www.youtube.com/embed/${videoData.videoId}?autoplay=1&modestbranding=1&rel=0`
+                                });
+                            }
+                        });
+
+                        // Se abbiamo trovato i video della pagina (solitamente 30), li stampiamo subito
+                        if (parsedVideos.length > 0) {
+                            renderVideoCards(parsedVideos, listContainer);
+                        } else {
+                            // Se la scheda video è vuota o ha un formato alternativo, avvia il fallback RSS
+                            await fetchFallbackRSS(channel.sourceId, listContainer);
+                        }
+                    } else {
+                        // Se l'oggetto JSON non viene trovato nel sorgente, attiva il fallback RSS
+                        await fetchFallbackRSS(channel.sourceId, listContainer);
+                    }
+                } catch (err) {
+                    console.log("Scraping fallito, avvio Fallback RSS...", err);
+                    await fetchFallbackRSS(channel.sourceId, listContainer);
+                }
+
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
                 const isPlaylist = channel.sourceId.startsWith('PL');
@@ -616,24 +632,15 @@
             document.getElementById('marqueeText').innerHTML = `<p>NOW PLAYING: ${title.toUpperCase()}</p><p>NOW PLAYING: ${title.toUpperCase()}</p>`;
         }
 
-        async function addChannel() {
+        function addChannel() {
             const name = document.getElementById('inputName').value.trim();
             const platform = document.getElementById('inputPlatform').value;
             const rawId = document.getElementById('inputId').value.trim();
 
             if (!name || !rawId) return;
 
-            const btn = document.getElementById('addBtn');
-            btn.innerText = "Risoluzione in corso...";
-            btn.disabled = true;
-
+            // Pulizia istantanea dell'ID o dell'handle, nessuna attesa asincrona bloccante
             let sourceId = cleanInputId(rawId, platform);
-
-            // Se è un canale YouTube, attiviamo il resolver in background prima del salvataggio
-            if (platform === 'youtube_channel') {
-                sourceId = await resolveYouTubeChannelId(sourceId);
-            }
-
             const newId = name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(Math.random() * 1000);
 
             channels.push({ id: newId, name: name, platform: platform, sourceId: sourceId });
@@ -642,9 +649,6 @@
             document.getElementById('inputName').value = '';
             document.getElementById('inputId').value = '';
             
-            btn.innerText = "Aggiungi Canale";
-            btn.disabled = false;
-
             renderAppChannels();
             toggleView();
         }
