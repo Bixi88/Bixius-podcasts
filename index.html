@@ -358,6 +358,28 @@
             font-size: 14px;
         }
 
+        .api-input-container {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-api-save {
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 0 16px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background-color 0.2s;
+        }
+
+        .btn-api-save:hover {
+            background-color: #444;
+        }
+
         .btn-row {
             display: flex;
             gap: 12px;
@@ -419,13 +441,17 @@
     </div>
 
     <div id="settingsPanel" class="container view-panel">
-        <div class="settings-card" style="margin-bottom: 20px; border: 1px solid rgba(255,0,0,0.2);">
+        <div class="settings-card" style="margin-bottom: 20px; border: 1px solid rgba(255, 0, 0, 0.2);">
             <h2 style="font-size:16px; margin-bottom:12px; color: var(--yt-red); display:flex; align-items:center; gap:6px;">
                 <i class="material-icons-round" style="font-size:20px;">vpn_key</i> Configurazione YouTube API
             </h2>
             <div class="form-group">
-                <label>YouTube Data API v3 Key (Salvata in locale)</label>
-                <input type="password" id="inputApiKey" class="form-control" placeholder="Incolla qui la tua API Key di Google..." oninput="saveApiKey()">
+                <label>YouTube Data API v3 Key</label>
+                <div class="api-input-container">
+                    <input type="password" id="inputApiKey" class="form-control" placeholder="Incolla qui la tua API Key...">
+                    <button class="btn-api-save" id="btnSaveApi" onclick="saveApiKey()">Salva Key</button>
+                </div>
+                <small id="apiStatusMessage" style="display:block; margin-top:6px; font-size:11px; color:var(--text-secondary);"></small>
             </div>
         </div>
 
@@ -468,15 +494,38 @@
         let nextPageToken = "";        
         let isProcessingScroll = false;
 
-        // Funzioni di gestione della Chiave API tramite interfaccia grafica
+        // Caricamento iniziale e controllo stato chiave API
         function loadApiKey() {
             const savedKey = localStorage.getItem('bixius_yt_api_key') || "";
             document.getElementById('inputApiKey').value = savedKey;
+            
+            const msg = document.getElementById('apiStatusMessage');
+            if(savedKey) {
+                msg.innerText = "Chiave memorizzata correttamente in locale.";
+                msg.style.color = "#4caf50";
+            } else {
+                msg.innerText = "Nessuna chiave salvata. Inseriscine una per abilitare i canali YouTube.";
+                msg.style.color = "#ff9800";
+            }
         }
 
+        // Salvataggio attivato solo alla pressione del pulsante dedicato
         function saveApiKey() {
             const keyFieldValue = document.getElementById('inputApiKey').value.trim();
+            const msg = document.getElementById('apiStatusMessage');
+            const btn = document.getElementById('btnSaveApi');
+
             localStorage.setItem('bixius_yt_api_key', keyFieldValue);
+            
+            if(keyFieldValue) {
+                msg.innerText = "Chiave salvata con successo!";
+                msg.style.color = "#4caf50";
+                btn.style.backgroundColor = "#4caf50";
+                setTimeout(() => { btn.style.backgroundColor = "#333"; }, 1500);
+            } else {
+                msg.innerText = "Chiave rimossa.";
+                msg.style.color = "#ff9800";
+            }
         }
 
         function getApiKey() {
@@ -510,10 +559,8 @@
                     clean = clean.split('v=')[1].split('&')[0];
                 } else if (clean.includes('youtu.be/')) {
                     clean = clean.split('youtu.be/')[1].split('?')[0];
-                } {
-                    if (clean.includes('list=')) {
-                        clean = clean.split('list=')[1].split('&')[0];
-                    }
+                } else if (clean.includes('list=')) {
+                    clean = clean.split('list=')[1].split('&')[0];
                 }
             } else if (platform === 'youtube_channel') {
                 if (clean.includes('youtube.com/channel/')) {
@@ -627,7 +674,7 @@
             const apiKey = getApiKey();
 
             if (!apiKey) {
-                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--yt-red);">Errore: Incolla la tua YouTube API KEY nel pannello delle impostazioni (icona ingranaggio)!</p>';
+                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--yt-red);">Errore: Salva una chiave API valida nel pannello delle impostazioni (icona ingranaggio)!</p>';
                 return;
             }
 
