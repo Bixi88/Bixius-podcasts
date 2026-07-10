@@ -13,6 +13,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=YouTube+Sans:wght@700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    
     <style>
         :root {
             --bg-main: #0f0f0f;
@@ -29,55 +30,162 @@
         }
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { background-color: var(--bg-main); color: var(--text-main); font-family: var(--font-main); overflow-x: hidden; padding-bottom: 60px; }
-        /* ... (tutto il tuo CSS rimane uguale, lo salto per brevità) ... */
+        .top-bar { height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background-color: var(--bg-main); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .brand { display: flex; align-items: center; gap: 8px; }
+        .brand .play-logo { color: var(--yt-red); font-size: 28px; }
+        .brand h1 { font-family: var(--font-yt); font-size: 20px; font-weight: 700; letter-spacing: -0.6px; }
+        .icon-btn { background: none; border: none; color: var(--text-main); cursor: pointer; padding: 8px; border-radius: 50%; }
+        .icon-btn:hover { background-color: var(--bg-surface-hover); }
+        .container { max-width: 680px; margin: 0 auto; padding: 0 16px; }
+        .view-panel { display: none; }
+        .view-panel.active { display: block; }
+        .marquee-wrapper { position: relative; background-color: var(--bg-surface); padding: 10px 0; border-radius: var(--radius-player) var(--radius-player) 0 0; overflow: hidden; margin-top: 12px; }
+        .marquee-content { display: flex; white-space: nowrap; gap: 60px; animation: marquee-anim 20s linear infinite; }
+        .marquee-content p { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; color: var(--text-secondary); text-transform: uppercase; }
+        @keyframes marquee-anim { 0% { transform: translateX(0%); } 100% { transform: translateX(-50%); } }
+        .player-section { margin-bottom: 24px; box-shadow: 0 12px 32px rgba(0,0,0,0.7); border-radius: 0 0 var(--radius-player) var(--radius-player); overflow: hidden; background-color: var(--bg-surface); }
+        .player-wrapper { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; }
+        .player-wrapper iframe { width: 100%; height: 100%; border: none; }
+        .no-video-placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-secondary); gap: 12px; padding: 20px; text-align: center; }
+        .section-title { font-size: 16px; font-weight: 500; margin-bottom: 12px; padding-left: 4px; }
+        .channels-slider { display: flex; gap: 16px; overflow-x: auto; padding: 6px 4px 16px 4px; scroll-behavior: smooth; }
+        .channel-item { display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; flex-shrink: 0; }
+        .avatar-circle { width: 72px; height: 72px; border-radius: 50%; padding: 3px; background: transparent; }
+        .avatar-placeholder { width: 100%; height: 100%; border-radius: 50%; background-color: #333; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 24px; border: 3px solid var(--bg-main); }
+        .video-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+        .video-card { display: flex; gap: 12px; padding: 14px; background-color: var(--bg-surface); border-radius: var(--radius-card); cursor: pointer; }
+        .info-area { width: 100%; }
+        .v-title { font-size: 14px; font-weight: 500; }
+        .v-meta { font-size: 11px; color: var(--text-secondary); }
+        .settings-card { background-color: var(--bg-surface); padding: 20px; border-radius: var(--radius-player); margin-top: 16px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+        .form-control { width: 100%; background-color: #161616; border: 1px solid #333; color: #fff; padding: 10px 12px; border-radius: 6px; }
+        .api-input-container { display: flex; gap: 8px; }
+        .btn-api-save { background-color: #333; color: #fff; padding: 0 16px; border-radius: 6px; cursor: pointer; }
+        .btn-row { display: flex; gap: 12px; margin-top: 8px; }
+        .btn { flex: 1; padding: 11px; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; }
+        .btn-primary { background-color: var(--yt-red); color: #fff; }
+        .btn-secondary { background-color: #333; color: #fff; }
     </style>
 </head>
 <body>
-    <!-- Il tuo HTML rimane uguale fino alla sezione script -->
+    <div class="top-bar">
+        <div class="brand">
+            <i class="material-icons-round play-logo">play_circle_filled</i>
+            <h1 id="appTitle">Bixius's Choice Podcasts</h1>
+        </div>
+        <button class="icon-btn" onclick="toggleView()">
+            <i class="material-icons-round" id="viewIcon">settings</i>
+        </button>
+    </div>
+
+    <div id="homePanel" class="container view-panel active">
+        <div class="marquee-wrapper">
+            <div class="marquee-content" id="marqueeText">
+                <p>Seleziona un canale salvato o aggiungine uno nuovo dalle impostazioni</p>
+                <p>Seleziona un canale salvato o aggiungine uno nuovo dalle impostazioni</p>
+            </div>
+        </div>
+        <div class="player-section">
+            <div class="player-wrapper" id="playerWrapper">
+                <div class="no-video-placeholder">
+                    <i class="material-icons-round">play_arrow</i>
+                    <p>Scegli un canale, poi clicca su un contenuto in basso</p>
+                </div>
+            </div>
+        </div>
+        <h2 class="section-title">I tuoi canali</h2>
+        <div class="channels-slider" id="channelsSlider"></div>
+        <h2 class="section-title" id="currentChannelTitle" style="display:none;">Ultimi video pubblicati</h2>
+        <div class="video-list" id="videoList"></div>
+    </div>
+
+    <div id="settingsPanel" class="container view-panel">
+        <div class="settings-card">
+            <h2 style="font-size:16px; margin-bottom:12px; color:var(--yt-red);">🔑 YouTube API Key</h2>
+            <div class="form-group">
+                <label>YouTube Data API v3 Key</label>
+                <div class="api-input-container">
+                    <input type="password" id="inputApiKey" class="form-control" placeholder="Incolla la tua API Key">
+                    <button class="btn-api-save" onclick="saveApiKey()">Salva</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-card">
+            <h2 style="font-size:18px; margin-bottom:12px;">Gestione Canali</h2>
+            <div class="form-group">
+                <label>Nome del Canale</label>
+                <input type="text" id="inputName" class="form-control" placeholder="Es. Pregianza">
+            </div>
+            <div class="form-group">
+                <label>Piattaforma</label>
+                <select id="inputPlatform" class="form-control" onchange="updatePlaceholder()">
+                    <option value="youtube_channel">YouTube Canale</option>
+                    <option value="youtube_video">YouTube Video/Playlist</option>
+                    <option value="twitch">Twitch</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label id="idLabel">ID Canale UC...</label>
+                <input type="text" id="inputId" class="form-control">
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-secondary" onclick="toggleView()">Chiudi</button>
+                <button class="btn btn-primary" onclick="addChannel()">Aggiungi</button>
+            </div>
+            <button class="btn btn-secondary" style="width:100%; margin-top:12px; background:#8b0000;" onclick="clearAllChannels()">Svuota Tutti i Canali</button>
+        </div>
+    </div>
 
     <script>
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
-        let currentView = 'home';
-        let displayedVideoUrls = new Set();
 
-        function getApiKey() {
-            return localStorage.getItem('bixius_yt_api_key') || "";
-        }
-
+        function getApiKey() { return localStorage.getItem('bixius_yt_api_key') || ""; }
         function saveApiKey() {
-            const key = document.getElementById('inputApiKey').value.trim();
-            localStorage.setItem('bixius_yt_api_key', key);
-            alert(key ? "API Key salvata!" : "Chiave rimossa.");
-            loadApiKey();
+            localStorage.setItem('bixius_yt_api_key', document.getElementById('inputApiKey').value.trim());
+            alert("API Key salvata!");
         }
 
-        function loadApiKey() {
-            document.getElementById('inputApiKey').value = getApiKey();
+        function updatePlaceholder() {
+            const platform = document.getElementById('inputPlatform').value;
+            const label = document.getElementById('idLabel');
+            if (platform === 'twitch') label.innerText = "Nome Utente Twitch";
+            else if (platform === 'youtube_channel') label.innerText = "ID Canale UC...";
+            else label.innerText = "ID Video o Playlist";
+        }
+
+        function renderAppChannels() {
+            const slider = document.getElementById('channelsSlider');
+            slider.innerHTML = '';
+            channels.forEach(chan => {
+                const item = document.createElement('div');
+                item.className = `channel-item ${chan.platform === 'twitch' ? 'twitch-type' : ''}`;
+                item.onclick = () => selectChannel(chan.id);
+                item.innerHTML = `<div class="avatar-circle"><div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div></div><span>${chan.name}</span>`;
+                slider.appendChild(item);
+            });
         }
 
         async function selectChannel(id) {
-            // ... codice attivo/inattivo invariato ...
-
             const channel = channels.find(c => c.id === id);
             const listContainer = document.getElementById('videoList');
             listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero in corso...</p>';
 
+            console.log(`[DEBUG] Caricamento canale: ${channel.name}`);
+
             if (channel.platform === 'youtube_channel') {
-                const ucId = channel.sourceId.trim();
-                console.log(`[DEBUG] Selezionato canale: ${channel.name} (${ucId})`);
-
                 const apiKey = getApiKey();
-                console.log(`[DEBUG] API Key presente: ${apiKey ? 'SÌ' : 'NO'}`);
-
                 if (apiKey) {
-                    console.log("[DEBUG] Tentativo caricamento con YouTube Data API");
-                    await fetchYouTubeBatch(ucId);
+                    console.log("[DEBUG] Uso API Key");
+                    await fetchYouTubeBatch(channel.sourceId);
                 } else {
-                    console.log("[DEBUG] Nessuna API Key → fallback RSS");
-                    await loadWithRssFeeds(ucId);
+                    console.log("[DEBUG] Nessuna API Key → Uso RSS");
+                    await loadWithRssFeeds(channel.sourceId);
                 }
-            } 
-            // ... twitch e youtube_video invariati ...
+            }
+            // Aggiungi qui twitch e youtube_video se vuoi
         }
 
         async function fetchYouTubeBatch(ucId) {
@@ -87,17 +195,10 @@
 
             try {
                 const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=20&playlistId=${uuId}&key=${apiKey}`;
-                console.log("[DEBUG] Chiamata API:", url);
-
                 const res = await fetch(url);
                 const data = await res.json();
 
-                console.log(`[DEBUG] Status: ${res.status}`, data);
-
-                if (!res.ok) {
-                    listContainer.innerHTML = `<p style="color:#ff9800; padding:20px;">Errore API: ${data.error?.message || 'Quota superata'}</p>`;
-                    return;
-                }
+                if (!res.ok) throw new Error(data.error?.message || "Quota superata");
 
                 const videos = data.items.map(item => ({
                     title: item.snippet.title,
@@ -105,50 +206,59 @@
                 }));
 
                 appendVideoCards(videos, listContainer, false);
-                console.log(`[DEBUG] ✅ Caricati ${videos.length} video tramite API`);
-
+                console.log(`[DEBUG] ✅ API OK - ${videos.length} video caricati`);
             } catch (err) {
-                console.error("[DEBUG] Errore fetch:", err);
-                listContainer.innerHTML = `<p>Errore di rete.</p>`;
+                console.error("[DEBUG] Errore API:", err);
+                listContainer.innerHTML = `<p style="color:#ff9800;">Errore API: ${err.message}</p>`;
             }
         }
 
         async function loadWithRssFeeds(ucId) {
             const listContainer = document.getElementById('videoList');
             let videos = [];
+            const feeds = [
+                `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`,
+                `https://www.youtube.com/feeds/videos.xml?playlist_id=UU${ucId.substring(2)}`
+            ];
 
-            try {
-                // Feed 1 + Feed 2
-                const feeds = [
-                    `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`,
-                    `https://www.youtube.com/feeds/videos.xml?playlist_id=UU${ucId.substring(2)}`
-                ];
-
-                for (let feed of feeds) {
+            for (let feed of feeds) {
+                try {
                     const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed)}`);
                     const data = await res.json();
-                    if (data.status === 'ok') {
+                    if (data.items) {
                         data.items.forEach(item => {
                             let vId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : item.link.split('/').pop();
-                            videos.push({
-                                title: item.title,
-                                embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
-                            });
+                            videos.push({ title: item.title, embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0` });
                         });
                     }
-                }
-
-                appendVideoCards(videos.slice(0, 30), listContainer, false);
-                console.log(`[DEBUG] Caricati ${videos.length} video via RSS`);
-            } catch (e) {
-                console.error(e);
-                listContainer.innerHTML = '<p>Errore caricamento RSS.</p>';
+                } catch(e) {}
             }
+
+            appendVideoCards(videos.slice(0, 30), listContainer, false);
         }
 
-        // ... il resto del tuo script (appendVideoCards, launchVideo, ecc.) rimane uguale ...
+        function appendVideoCards(videos, container) {
+            container.innerHTML = '';
+            videos.forEach(v => {
+                const card = document.createElement('div');
+                card.className = 'video-card';
+                card.innerHTML = `<div class="info-area"><div class="v-title">${v.title}</div><div class="v-meta">YouTube</div></div>`;
+                card.onclick = () => launchVideo(v.embedUrl, v.title);
+                container.appendChild(card);
+            });
+        }
 
-        window.onload = function() {
+        function launchVideo(url, title) {
+            document.getElementById('playerWrapper').innerHTML = `<iframe src="${url}" allowfullscreen></iframe>`;
+            document.getElementById('marqueeText').innerHTML = `<p>NOW PLAYING: ${title}</p><p>NOW PLAYING: ${title}</p>`;
+        }
+
+        function toggleView() {
+            document.getElementById('homePanel').classList.toggle('active');
+            document.getElementById('settingsPanel').classList.toggle('active');
+        }
+
+        window.onload = () => {
             loadApiKey();
             renderAppChannels();
         };
