@@ -423,11 +423,14 @@
             
             <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin: 20px 0;">
             <button class="btn btn-secondary" style="width:100%; background-color:#8b0000;" onclick="clearAllChannels()">Svuota Tutti i Canali</button>
+            
+            <p style="font-size:12px; color:#666; margin-top:16px;">
+                💡 Per YouTube: usa preferibilmente il Channel ID (inizia con UC...) per maggiore affidabilità
+            </p>
         </div>
     </div>
 
     <script>
-        const CURRENT_DOMAIN = window.location.hostname || "localhost";
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
 
@@ -437,39 +440,26 @@
             if(platform === 'twitch') {
                 label.innerText = "Nome Utente Twitch (Es: pregianza)";
             } else if (platform === 'youtube_channel') {
-                label.innerText = "URL o Handle Canale YouTube (Es: @IlPregianza o link intero)";
+                label.innerText = "URL o Handle Canale YouTube (Es: @IlPregianza o Channel ID UC...)";
             } else {
                 label.innerText = "ID Video Singolo o ID Playlist (Es: PL...)";
             }
         }
 
-        function extractYouTubeChannelId(input) {
-            let val = input.trim();
-            if (val.includes('/@')) {
-                return '@' + val.split('/@')[1].split('/')[0].split('?')[0];
-            }
-            if (val.includes('youtube.com/channel/')) {
-                return val.split('youtube.com/channel/')[1].split('/')[0].split('?')[0];
-            }
-            return val;
-        }
-
         function cleanInputId(input, platform) {
             let clean = input.trim();
             if (platform === 'twitch') {
-                if (clean.includes('twitch.tv/')) {
-                    clean = clean.split('twitch.tv/').pop().split('/')[0].split('?')[0];
-                }
+                if (clean.includes('twitch.tv/')) clean = clean.split('twitch.tv/').pop().split('/')[0].split('?')[0];
             } else if (platform === 'youtube_video') {
-                if (clean.includes('v=')) {
-                    clean = clean.split('v=')[1].split('&')[0];
-                } else if (clean.includes('youtu.be/')) {
-                    clean = clean.split('youtu.be/')[1].split('?')[0];
-                } else if (clean.includes('list=')) {
-                    clean = clean.split('list=')[1].split('&')[0];
-                }
+                if (clean.includes('v=')) clean = clean.split('v=')[1].split('&')[0];
+                else if (clean.includes('youtu.be/')) clean = clean.split('youtu.be/').pop().split('?')[0];
+                else if (clean.includes('list=')) clean = clean.split('list=')[1].split('&')[0];
             } else if (platform === 'youtube_channel') {
-                clean = extractYouTubeChannelId(clean);
+                if (clean.includes('/@')) {
+                    clean = '@' + clean.split('/@')[1].split('/')[0].split('?')[0];
+                } else if (clean.includes('/channel/')) {
+                    clean = clean.split('/channel/')[1].split('/')[0].split('?')[0];
+                }
             }
             return clean;
         }
@@ -500,14 +490,9 @@
             try {
                 const urlObj = new URL(link);
                 const params = new URLSearchParams(urlObj.search);
-                if (params.has('v')) {
-                    return params.get('v').trim();
-                }
+                if (params.has('v')) return params.get('v').trim();
             } catch(e) {}
-            
-            if (link.includes('v=')) {
-                return link.split('v=')[1].split('&')[0].trim();
-            }
+            if (link.includes('v=')) return link.split('v=')[1].split('&')[0].trim();
             const parts = link.split('/');
             return parts[parts.length - 1].split('?')[0].trim();
         }
@@ -522,15 +507,19 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Caricamento elementi reali dal Feed...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Caricamento feed...</p>';
 
             if (channel.platform === 'youtube_channel') {
                 try {
                     let feedUrl = "";
-                    if (channel.sourceId.startsWith('@')) {
-                        feedUrl = `https://www.youtube.com/feeds/videos.xml?user=${channel.sourceId.replace('@', '')}`;
+                    let source = channel.sourceId;
+
+                    if (source.startsWith('@')) {
+                        feedUrl = `https://www.youtube.com/feeds/videos.xml?user=${source.replace('@', '')}`;
+                    } else if (source.startsWith('UC')) {
+                        feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${source}`;
                     } else {
-                        feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`;
+                        feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${source}`;
                     }
 
                     const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
@@ -548,34 +537,20 @@
                             card.innerHTML = `
                                 <div class="info-area">
                                     <div class="v-title">${item.title}</div>
-                                    <div class="v-meta">Caricato: ${new Date(item.pubDate).toLocaleDateString()} • YouTube</div>
+                                    <div class="v-meta">Caricato: ${new Date(item.pubDate).toLocaleDateString('it-IT')}</div>
                                 </div>
                             `;
                             listContainer.appendChild(card);
                         });
                     } else {
-                        const altFeed = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent('https://www.youtube.com/feeds/videos.xml?channel_id=' + channel.sourceId)}`;
-                        const resAlt = await fetch(altFeed);
-                        const dataAlt = await resAlt.json();
-                        
-                        if(dataAlt.status === 'ok' && dataAlt.items) {
-                            listContainer.innerHTML = '';
-                            dataAlt.items.forEach(item => {
-                                const videoId = getYouTubeIdFromFeedLink(item.link);
-                                const card = document.createElement('div');
-                                card.className = 'video-card';
-                                card.onclick = () => launchVideo(`https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`, item.title);
-                                card.innerHTML = `<div class="info-area"><div class="v-title">${item.title}</div><div class="v-meta">YouTube</div></div>`;
-                                listContainer.appendChild(card);
-                            });
-                        } else {
-                            listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare il feed. Verifica di aver inserito l\'handle corretto con la @ o l\'ID Canale.</p>';
-                        }
+                        listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare il feed.<br>Prova ad inserire il Channel ID (UC...).</p>';
                     }
                 } catch (e) {
-                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore durante la connessione con il Feed RSS.</p>';
+                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore di connessione al feed RSS.</p>';
                 }
-            } else if (channel.platform === 'youtube_video') {
+            } 
+            // ... (il resto per youtube_video e twitch rimane invariato)
+            else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
                 const isPlaylist = channel.sourceId.startsWith('PL');
                 const url = isPlaylist ? `https://www.youtube.com/embed/videoseries?list=${channel.sourceId}` : `https://www.youtube.com/embed/${channel.sourceId}`;
@@ -587,14 +562,13 @@
                 listContainer.appendChild(card);
             } else if (channel.platform === 'twitch') {
                 listContainer.innerHTML = '';
-                // Rimosso qualsiasi iframe in alto. Ora inserisce un pulsante d'azione pulito per aprire la live/VOD
                 const card = document.createElement('div');
                 card.className = 'video-card';
                 card.onclick = () => window.open(`https://www.twitch.tv/${channel.sourceId}/videos`, '_blank');
                 card.innerHTML = `
                     <div class="info-area">
-                        <div class="v-title">Apri i Video e la Live di ${channel.name} su App Esterna</div>
-                        <div class="v-meta">Clicca qui per deviare la navigazione su Twitch direttamente</div>
+                        <div class="v-title">Apri i Video e la Live di ${channel.name} su Twitch</div>
+                        <div class="v-meta">Clicca qui per aprire in browser</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -659,7 +633,10 @@
             navigator.serviceWorker.register('./sw.js').catch(err => console.log("SW Error:", err));
         }
 
-        window.onload = renderAppChannels;
+        window.onload = () => {
+            renderAppChannels();
+            updatePlaceholder();
+        };
     </script>
 </body>
 </html>
