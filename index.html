@@ -22,14 +22,101 @@
             --text-secondary: #aaaaaa;
             --yt-red: #ff0000;
             --twitch-purple: #9146ff;
+            --font-yt: 'YouTube Sans', 'Roboto', sans-serif;
+            --font-main: 'Roboto', sans-serif;
+            --radius-player: 16px;
+            --radius-card: 12px;
         }
-        /* ... (stessi stili di prima, li ho mantenuti uguali per brevità) ... */
-        /* Copia gli stili dal file precedente se vuoi, sono identici */
+
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            overflow-x: hidden;
+            padding-bottom: 60px;
+        }
+
+        .top-bar {
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            background-color: var(--bg-main);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .brand { display: flex; align-items: center; gap: 8px; }
+        .brand .play-logo { color: var(--yt-red); font-size: 28px; }
+        .brand h1 { font-family: var(--font-yt); font-size: 20px; font-weight: 700; }
+
+        .container { max-width: 680px; margin: 0 auto; padding: 0 16px; }
+
+        .view-panel { display: none; }
+        .view-panel.active { display: block; }
+
+        .player-section {
+            margin-bottom: 24px;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+            border-radius: var(--radius-player);
+            overflow: hidden;
+            background-color: var(--bg-surface);
+        }
+        .player-wrapper { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; }
+        .player-wrapper iframe { width: 100%; height: 100%; border: none; }
+
+        .no-video-placeholder {
+            width: 100%; height: 100%; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; color: var(--text-secondary); gap: 12px;
+        }
+
+        .section-title { font-size: 16px; font-weight: 500; margin: 20px 4px 12px; }
+        .channels-slider { display: flex; gap: 16px; overflow-x: auto; padding: 6px 4px 16px; }
+        .channels-slider::-webkit-scrollbar { display: none; }
+
+        .channel-item {
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            cursor: pointer; flex-shrink: 0;
+        }
+        .avatar-circle {
+            width: 72px; height: 72px; border-radius: 50%; padding: 3px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .avatar-placeholder {
+            width: 100%; height: 100%; border-radius: 50%; background: #333;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px; font-weight: 700;
+        }
+
+        .video-list { display: flex; flex-direction: column; gap: 12px; }
+        .video-card {
+            display: flex; gap: 12px; padding: 14px; background: var(--bg-surface);
+            border-radius: var(--radius-card); cursor: pointer;
+        }
+
+        .settings-card {
+            background-color: var(--bg-surface);
+            padding: 20px;
+            border-radius: var(--radius-player);
+            margin-top: 16px;
+        }
+        .form-control {
+            width: 100%; background: #161616; border: 1px solid #333; color: #fff;
+            padding: 10px 12px; border-radius: 6px; font-size: 14px;
+        }
+        .btn {
+            padding: 11px; border: none; border-radius: 6px; font-weight: 700; cursor: pointer;
+        }
+        .btn-primary { background: var(--yt-red); color: white; }
+        .btn-secondary { background: #333; color: white; }
     </style>
 </head>
 <body>
 
-    <!-- Top bar e struttura HTML invariata -->
     <div class="top-bar">
         <div class="brand">
             <i class="material-icons-round play-logo">play_circle_filled</i>
@@ -41,7 +128,6 @@
     </div>
 
     <div id="homePanel" class="container view-panel active">
-        <!-- Player -->
         <div class="player-section">
             <div class="player-wrapper" id="playerWrapper">
                 <div class="no-video-placeholder">
@@ -52,7 +138,7 @@
         </div>
 
         <h2 class="section-title" id="lastWatchedTitle" style="display:none;">Ultimo video visto</h2>
-        <div id="lastWatchedContainer" class="video-list" style="margin-bottom:20px;"></div>
+        <div class="video-list" id="lastWatchedContainer"></div>
 
         <h2 class="section-title">I tuoi canali</h2>
         <div class="channels-slider" id="channelsSlider"></div>
@@ -61,12 +147,9 @@
         <div class="video-list" id="videoList"></div>
     </div>
 
-    <!-- Settings Panel -->
     <div id="settingsPanel" class="container view-panel">
-        <!-- ... (form invariato) ... -->
         <div class="settings-card">
-            <h2>Gestione Canali</h2>
-            <!-- Inserisci qui il form come prima -->
+            <h2 style="margin-bottom:16px;">Gestione Canali</h2>
             <div class="form-group">
                 <label>Nome del Canale</label>
                 <input type="text" id="inputName" class="form-control" placeholder="Es. Pregianza">
@@ -75,95 +158,97 @@
                 <label>Piattaforma</label>
                 <select id="inputPlatform" class="form-control">
                     <option value="youtube_channel">YouTube</option>
-                    <option value="youtube_video">YouTube Video/Playlist</option>
+                    <option value="youtube_video">YouTube (Video/Playlist)</option>
                     <option value="twitch">Twitch</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>URL o Handle (@nome) o Channel ID</label>
-                <input type="text" id="inputId" class="form-control" placeholder="https://youtube.com/@IlPregianza oppure UC...">
+                <label>URL, @handle o Channel ID</label>
+                <input type="text" id="inputId" class="form-control" placeholder="https://youtube.com/@IlPregianza">
             </div>
-            <button class="btn btn-primary" onclick="addChannel()">Aggiungi Canale</button>
+            <div style="display:flex; gap:10px;">
+                <button class="btn btn-secondary" onclick="toggleView()">Chiudi</button>
+                <button class="btn btn-primary" onclick="addChannel()">Aggiungi Canale</button>
+            </div>
         </div>
     </div>
 
     <script>
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let lastWatched = JSON.parse(localStorage.getItem('bixius_last_watched')) || null;
-        let videoProgress = JSON.parse(localStorage.getItem('bixius_video_progress')) || {};
 
-        // === AUTO RESOLVE YOUTUBE CHANNEL ID ===
-        async function resolveYouTubeId(input) {
-            let clean = input.trim();
-            if (clean.includes('youtube.com/channel/')) {
-                return clean.split('channel/')[1].split('/')[0].split('?')[0];
-            }
-            if (clean.includes('/@')) {
-                // Per ora usiamo direttamente l'handle, ma proviamo prima con channel_id
-                return clean;
-            }
-            if (clean.startsWith('UC') && clean.length > 20) return clean;
-            return clean;
+        function renderAppChannels() {
+            const slider = document.getElementById('channelsSlider');
+            slider.innerHTML = channels.length === 0 ? 
+                `<p style="color:var(--text-secondary); padding:10px;">Nessun canale configurato.</p>` : '';
+
+            channels.forEach(chan => {
+                const item = document.createElement('div');
+                item.className = `channel-item`;
+                item.onclick = () => selectChannel(chan.id);
+                item.innerHTML = `
+                    <div class="avatar-circle"><div class="avatar-placeholder">${chan.name[0].toUpperCase()}</div></div>
+                    <span>${chan.name}</span>
+                `;
+                slider.appendChild(item);
+            });
+        }
+
+        function cleanInputId(input) {
+            let val = input.trim();
+            if (val.includes('/@')) val = '@' + val.split('/@')[1].split('/')[0];
+            if (val.includes('/channel/')) val = val.split('/channel/')[1].split('/')[0];
+            return val;
+        }
+
+        async function addChannel() {
+            const name = document.getElementById('inputName').value.trim();
+            const platform = document.getElementById('inputPlatform').value;
+            let rawId = document.getElementById('inputId').value.trim();
+
+            if (!name || !rawId) return alert("Inserisci nome e ID/URL");
+
+            const sourceId = cleanInputId(rawId);
+            const newId = Date.now().toString(36);
+
+            channels.push({ id: newId, name, platform, sourceId });
+            localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+            
+            document.getElementById('inputName').value = '';
+            document.getElementById('inputId').value = '';
+            renderAppChannels();
+            toggleView();
         }
 
         async function selectChannel(id) {
-            // ... (logica precedente migliorata)
-            // Userò la versione aggiornata con resolve
+            const channel = channels.find(c => c.id === id);
+            document.getElementById('currentChannelTitle').style.display = 'block';
+            document.getElementById('currentChannelTitle').innerText = `Ultimi da ${channel.name}`;
+
+            const list = document.getElementById('videoList');
+            list.innerHTML = '<p style="padding:30px; text-align:center; color:#888;">Caricamento...</p>';
+
+            // Qui andrebbe la logica completa di fetch RSS (per ora semplificata)
+            list.innerHTML = `<p style="padding:20px; color:#888;">Canale: ${channel.sourceId}<br><small>Feed in fase di sviluppo</small></p>`;
         }
 
-        function launchVideo(videoId, title, channelId) {
-            const url = `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0&start=${Math.floor(videoProgress[videoId] || 0)}`;
-            
-            const wrapper = document.getElementById('playerWrapper');
-            wrapper.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay; encrypted-media" id="ytPlayer"></iframe>`;
+        function toggleView() {
+            const home = document.getElementById('homePanel');
+            const settings = document.getElementById('settingsPanel');
+            const icon = document.getElementById('viewIcon');
 
-            // Salva ultimo visto
-            lastWatched = { videoId, title, channelId, timestamp: Date.now() };
-            localStorage.setItem('bixius_last_watched', JSON.stringify(lastWatched));
-
-            renderLastWatched();
-        }
-
-        function renderLastWatched() {
-            const container = document.getElementById('lastWatchedContainer');
-            const titleEl = document.getElementById('lastWatchedTitle');
-            
-            if (lastWatched) {
-                titleEl.style.display = 'block';
-                container.innerHTML = `
-                    <div class="video-card" onclick="playLastWatched()">
-                        <div class="info-area">
-                            <div class="v-title">${lastWatched.title}</div>
-                            <div class="v-meta">Ultimo visto • ${new Date(lastWatched.timestamp).toLocaleDateString('it-IT')}</div>
-                        </div>
-                    </div>
-                `;
+            if (home.classList.contains('active')) {
+                home.classList.remove('active');
+                settings.classList.add('active');
+                icon.textContent = 'close';
+            } else {
+                settings.classList.remove('active');
+                home.classList.add('active');
+                icon.textContent = 'settings';
             }
         }
 
-        function playLastWatched() {
-            if (lastWatched) {
-                launchVideo(lastWatched.videoId, lastWatched.title);
-            }
-        }
-
-        // Salva progresso video
-        function saveProgress() {
-            const iframe = document.querySelector('#ytPlayer');
-            if (!iframe) return;
-            // YouTube iframe API would be better, but for simplicity we use a timer
-        }
-
-        // Inizializzazione
-        window.onload = () => {
-            renderAppChannels();
-            renderLastWatched();
-        };
-
-        // Event listener per salvare progresso (semplificato)
-        setInterval(() => {
-            // Qui si potrebbe implementare con YouTube Iframe API per precisione
-        }, 10000);
+        window.onload = renderAppChannels;
     </script>
 </body>
 </html>
