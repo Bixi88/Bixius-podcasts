@@ -287,7 +287,6 @@
             transition: background-color 0.2s, transform 0.2s;
             align-items: center;
             
-            /* Animazione graduale a tasselli */
             opacity: 0;
             transform: translateX(-12px);
             animation: materialFadeIn 0.6s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
@@ -443,7 +442,7 @@
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
         let displayedVideoUrls = new Set();
-        let currentFastCount = 0; // Tiene traccia di quanti elementi sono già visibili a schermo
+        let currentFastCount = 0;
 
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
@@ -504,7 +503,6 @@
             });
         }
 
-        // Appende incrementalmente i video gestendo l'indice dei delay in modo continuo
         function appendVideoCards(videoArray, listContainer, isAppendOnly = false) {
             if (!isAppendOnly) {
                 listContainer.innerHTML = '';
@@ -527,7 +525,6 @@
                 card.className = 'video-card';
                 card.onclick = () => launchVideo(item.embedUrl, item.title);
                 
-                // Calcola il delay: se è un append, riparte da dove l'animazione precedente era finita
                 let delayMultiplier = isAppendOnly ? (currentFastCount + animatedIndex) : animatedIndex;
                 card.style.animationDelay = `${delayMultiplier * 75}ms`;
                 
@@ -542,7 +539,7 @@
             });
 
             if (!isAppendOnly) {
-                currentFastCount = animatedIndex; // Registra quanti ne abbiamo stampati subito
+                currentFastCount = animatedIndex;
             }
         }
 
@@ -564,7 +561,7 @@
                 if (ucId.startsWith('UC')) {
                     let initialLoadSuccess = false;
 
-                    // --- FASE 1: CARICAMENTO SUBITO (Prende i primi disponibili istantaneamente) ---
+                    // --- FASE 1: IMMEDIATA (Prende i primi 10/15 dal feed rapido RSS) ---
                     try {
                         const fastFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
                         const fastRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(fastFeedUrl)}`);
@@ -582,74 +579,80 @@
                             initialLoadSuccess = true;
                         }
                     } catch (e) {
-                        console.log("Fase veloce bypassata, attendo i dati asincroni profondi...");
+                        console.log("Fase veloce ignorata, attendo i dati completi...");
                     }
 
-                    // --- FASE 2: INTEGRAZIONE AD ONDA (Sblocca fino a 30 elementi totali, lasciando fermi i primi) ---
+                    // --- FASE 2: DEEP CARICAMENTO (Estrae fino a 30 elementi dalla pagina reale della playlist) ---
                     setTimeout(async () => {
                         const uuPlaylistId = 'UU' + ucId.substring(2);
-                        const deepFeedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
+                        // Interroghiamo direttamente la pagina web della playlist per bypassare i limiti dell'RSS
+                        const playlistWebUrl = `https://www.youtube.com/playlist?list=${uuPlaylistId}`;
                         
                         const proxies = [
-                            `https://api.allorigins.win/get?url=${encodeURIComponent(deepFeedUrl)}`,
-                            `https://corsproxy.io/?${encodeURIComponent(deepFeedUrl)}`
+                            `https://api.allorigins.win/get?url=${encodeURIComponent(playlistWebUrl)}`,
+                            `https://corsproxy.io/?${encodeURIComponent(playlistWebUrl)}`
                         ];
 
-                        let xmlText = null;
+                        let htmlContent = null;
                         for (let proxyUrl of proxies) {
                             try {
                                 const controller = new AbortController();
-                                const timeoutId = setTimeout(() => controller.abort(), 3500);
+                                const timeoutId = setTimeout(() => controller.abort(), 4000);
                                 const res = await fetch(proxyUrl, { signal: controller.signal });
                                 clearTimeout(timeoutId);
                                 
                                 if (res.ok) {
                                     if (proxyUrl.includes('allorigins')) {
                                         const data = await res.json();
-                                        xmlText = data.contents;
+                                        htmlContent = data.contents;
                                     } else {
-                                        xmlText = await res.text();
+                                        htmlContent = await res.text();
                                     }
-                                    if (xmlText && xmlText.includes('<entry>')) break;
+                                    if (htmlContent && htmlContent.includes('ytInitialData')) break;
                                 }
                             } catch (e) {
-                                console.log("Proxy in failover per i restanti video...");
+                                console.log("Errore proxy, cambio nodo...");
                             }
                         }
 
-                        if (xmlText) {
+                        if (htmlContent) {
                             try {
-                                const parser = new DOMParser();
-                                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-                                const entries = xmlDoc.getElementsByTagName("entry");
-                                
-                                let deepParsedVideos = [];
-                                for (let i = 0; i < entries.length; i++) {
-                                    const entry = entries[i];
-                                    const title = entry.getElementsByTagName("title")[0]?.textContent || "Video";
-                                    const videoId = entry.getElementsByTagName("yt:videoId")[0]?.textContent;
+                                // Estraiamo il JSON nascosto che contiene i dati dei video di YouTube
+                                const regex = /ytInitialData\s*=\s*({.+?});/;
+                                const match = htmlContent.match(regex);
+                                if (match) {
+                                    const ytData = JSON.parse(match[1]);
+                                    const contents = ytData.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents?.[0]?.playlistVideoListRenderer?.contents;
                                     
-                                    if (videoId) {
-                                        deepParsedVideos.push({
-                                            title: title,
-                                            embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
-                                        });
+                                    if (contents && contents.length > 0) {
+                                        let deepParsedVideos = [];
+                                        
+                                        for (let item of contents) {
+                                            const videoRenderer = item.playlistVideoRenderer;
+                                            if (videoRenderer && videoRenderer.videoId) {
+                                                const title = videoRenderer.title?.runs?.[0]?.text || "YouTube Video";
+                                                deepParsedVideos.push({
+                                                    title: title,
+                                                    embedUrl: `https://www.youtube.com/embed/${videoRenderer.videoId}?autoplay=1&modestbranding=1&rel=0`
+                                                });
+                                            }
+                                        }
+
+                                        if (deepParsedVideos.length > 0) {
+                                            // Ora abbiamo fino a 100 video estratti, ne tagliamo 30 totali.
+                                            // Quelli già mostrati restano dove sono, gli altri 20 si agganciano sotto!
+                                            appendVideoCards(deepParsedVideos.slice(0, 30), listContainer, initialLoadSuccess);
+                                            return;
+                                        }
                                     }
                                 }
-
-                                if (deepParsedVideos.length > 0) {
-                                    // Chiede un tetto massimo di 30 video. Quelli già a schermo rimarranno intatti,
-                                    // mentre i successivi (fino a 20 video in più) si agganceranno in coda con scorrimento fluido.
-                                    appendVideoCards(deepParsedVideos.slice(0, 30), listContainer, initialLoadSuccess);
-                                    return;
-                                }
                             } catch (err) {
-                                console.error("Errore nel parsing asincrono:", err);
+                                console.error("Errore nell'estrazione profonda HTML:", err);
                             }
                         }
 
                         if (!initialLoadSuccess) {
-                            listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile aggiornare la lista video.</p>';
+                            listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile aggiornare l\'archivio video.</p>';
                         }
                     }, 50);
                 }
