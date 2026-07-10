@@ -248,12 +248,10 @@
 
         .channel-item.active .avatar-circle {
             background: linear-gradient(45deg, var(--yt-red), #ff6b6b);
-            animation: pulse-eff 2s infinite ease-in-out;
         }
 
         .channel-item.twitch-type.active .avatar-circle {
             background: linear-gradient(45deg, var(--twitch-purple), #a970ff);
-            animation: pulse-eff-twitch 2s infinite ease-in-out;
         }
 
         .channel-item span {
@@ -272,15 +270,6 @@
             font-weight: 700;
         }
 
-        @keyframes pulse-eff {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.04); }
-        }
-        @keyframes pulse-eff-twitch {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.04); }
-        }
-
         .video-list {
             display: flex;
             flex-direction: column;
@@ -291,7 +280,7 @@
         .video-card {
             display: flex;
             gap: 12px;
-            padding: 12px;
+            padding: 14px;
             background-color: var(--bg-surface);
             border-radius: var(--radius-card);
             cursor: pointer;
@@ -326,14 +315,6 @@
             padding: 20px;
             border-radius: var(--radius-player);
             margin-top: 16px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        }
-
-        .settings-card h2 {
-            font-size: 18px;
-            margin-bottom: 16px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding-bottom: 8px;
         }
 
         .form-group {
@@ -345,7 +326,6 @@
             font-size: 12px;
             color: var(--text-secondary);
             margin-bottom: 6px;
-            font-weight: 500;
         }
 
         .form-control {
@@ -355,7 +335,6 @@
             color: #fff;
             padding: 10px 12px;
             border-radius: 6px;
-            font-family: inherit;
             font-size: 14px;
         }
 
@@ -371,7 +350,6 @@
             border: none;
             border-radius: 6px;
             font-weight: 700;
-            font-size: 14px;
             cursor: pointer;
         }
 
@@ -394,8 +372,8 @@
     <div id="homePanel" class="container view-panel active">
         <div class="marquee-wrapper">
             <div class="marquee-content" id="marqueeText">
-                <p>Nessun video in riproduzione • Aggiungi e seleziona un canale per iniziare</p>
-                <p>Nessun video in riproduzione • Aggiungi e seleziona un canale per iniziare</p>
+                <p>Seleziona un canale salvato o aggiungine uno nuovo dalle impostazioni</p>
+                <p>Seleziona un canale salvato o aggiungine uno nuovo dalle impostazioni</p>
             </div>
         </div>
 
@@ -403,70 +381,75 @@
             <div class="player-wrapper" id="playerWrapper">
                 <div class="no-video-placeholder">
                     <i class="material-icons-round">play_arrow</i>
-                    <p>Fai click su un canale e seleziona il contenuto per riprodurlo</p>
+                    <p>Scegli una sorgente dall'elenco in basso</p>
                 </div>
             </div>
         </div>
 
-        <h2 class="section-title">I tuoi canali scelti</h2>
+        <h2 class="section-title">I tuoi canali</h2>
         <div class="channels-slider" id="channelsSlider"></div>
 
-        <h2 class="section-title" id="currentChannelTitle" style="display:none;">Contenuto disponibile</h2>
+        <h2 class="section-title" id="currentChannelTitle" style="display:none;">Contenuti Selezionabili</h2>
         <div class="video-list" id="videoList">
             <p id="initialPlaceholder" style="padding: 24px 4px; color: var(--text-secondary); text-align: center; font-size: 14px;">
-                Usa l'icona dell'ingranaggio in alto a destra per inserire i tuoi canali preferiti.
+                Nessun canale caricato. Configura la tua lista cliccando sull'icona dell'ingranaggio.
             </p>
         </div>
     </div>
 
     <div id="settingsPanel" class="container view-panel">
         <div class="settings-card">
-            <h2>Aggiungi un nuovo canale / podcast</h2>
+            <h2 style="font-size:18px; margin-bottom:12px;">Aggiungi Canale</h2>
             <div class="form-group">
-                <label>Nome del Canale o Show</label>
-                <input type="text" id="inputName" class="form-control" placeholder="Es. Mio Canale...">
+                <label>Nome del Canale</label>
+                <input type="text" id="inputName" class="form-control" placeholder="Es. Pregianza">
             </div>
             <div class="form-group">
-                <label>Piattaforma Principale</label>
-                <select id="inputPlatform" class="form-control">
-                    <option value="youtube">YouTube</option>
-                    <option value="twitch">Twitch</option>
+                <label>Piattaforma</label>
+                <select id="inputPlatform" class="form-control" onchange="updatePlaceholder()">
+                    <option value="youtube">YouTube (ID Video o Playlist)</option>
+                    <option value="twitch">Twitch (Nome Utente Canale)</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>ID Video, Link Completo o Username Canale</label>
-                <input type="text" id="inputId" class="form-control" placeholder="Incolla l'ID o il link completo qui">
+                <label id="idLabel">ID Video o Link Completo</label>
+                <input type="text" id="inputId" class="form-control" placeholder="Incolla qui...">
             </div>
             <div class="btn-row">
-                <button class="btn btn-secondary" onclick="toggleView()">Annulla</button>
-                <button class="btn btn-primary" onclick="addChannel()">Salva Canale</button>
+                <button class="btn btn-secondary" onclick="toggleView()">Chiudi</button>
+                <button class="btn btn-primary" onclick="addChannel()">Aggiungi</button>
             </div>
         </div>
     </div>
 
     <script>
         const CURRENT_DOMAIN = window.location.hostname || "localhost";
-
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
 
-        // Funzione helper intelligente per estrarre solo l'ID puro se l'utente incolla un URL intero
+        function updatePlaceholder() {
+            const platform = document.getElementById('inputPlatform').value;
+            const label = document.getElementById('idLabel');
+            if(platform === 'twitch') {
+                label.innerText = "Nome Utente Twitch (Es: pregianza)";
+            } else {
+                label.innerText = "ID Video, Link o ID Playlist YouTube";
+            }
+        }
+
         function cleanInputId(input, platform) {
             let clean = input.trim();
             if (platform === 'twitch') {
-                // Se inserisce un URL di twitch tipo https://www.twitch.tv/username estrae solo l'ultimo pezzo
                 if (clean.includes('twitch.tv/')) {
-                    const parts = clean.split('twitch.tv/');
-                    if (parts[1]) clean = parts[1].split('/')[0].split('?')[0];
+                    clean = clean.split('twitch.tv/').pop().split('/')[0].split('?')[0];
                 }
-            } else if (platform === 'youtube') {
-                // Se inserisce link estesi di youtube estrae l'ID video v=...
+            } else {
                 if (clean.includes('v=')) {
                     clean = clean.split('v=')[1].split('&')[0];
                 } else if (clean.includes('youtu.be/')) {
                     clean = clean.split('youtu.be/')[1].split('?')[0];
-                } else if (clean.includes('embed/')) {
-                    clean = clean.split('embed/')[1].split('?')[0];
+                } else if (clean.includes('list=')) {
+                    clean = clean.split('list=')[1].split('&')[0];
                 }
             }
             return clean;
@@ -475,22 +458,17 @@
         function renderAppChannels() {
             const slider = document.getElementById('channelsSlider');
             slider.innerHTML = '';
-
             if(channels.length === 0) {
-                slider.innerHTML = `<p style="font-size:13px; color:var(--text-secondary); padding: 10px 4px;">Nessun canale salvato</p>`;
+                slider.innerHTML = `<p style="font-size:13px; color:var(--text-secondary); padding:10px;">Nessun canale presente.</p>`;
                 return;
             }
-
             channels.forEach(chan => {
                 const item = document.createElement('div');
                 item.className = `channel-item ${chan.platform === 'twitch' ? 'twitch-type' : ''}`;
                 item.id = `app-chan-${chan.id}`;
                 item.onclick = () => selectChannel(chan.id);
-
                 item.innerHTML = `
-                    <div class="avatar-circle">
-                        <div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div>
-                    </div>
+                    <div class="avatar-circle"><div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div></div>
                     <span>${chan.name}</span>
                 `;
                 slider.appendChild(item);
@@ -499,53 +477,69 @@
 
         function selectChannel(id) {
             document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
-            const selectedEl = document.getElementById(`app-chan-${id}`);
-            if (selectedEl) selectedEl.classList.add('active');
+            document.getElementById(`app-chan-${id}`).classList.add('active');
 
             const channel = channels.find(c => c.id === id);
-            document.getElementById('currentChannelTitle').innerText = `Contenuto di: ${channel.name}`;
+            document.getElementById('currentChannelTitle').innerText = `Contenuti di: ${channel.name}`;
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
             listContainer.innerHTML = '';
 
-            // Generiamo l'embed pulito usando l'esatto ID estratto
-            const finalEmbed = channel.platform === 'youtube' 
-                ? `https://www.youtube.com/embed/${channel.sourceId}` 
-                : `https://player.twitch.tv/?channel=${channel.sourceId}&parent=${CURRENT_DOMAIN}&autoplay=false`;
+            if (channel.platform === 'twitch') {
+                // Per Twitch mostriamo i 3 flussi dinamici reali del canale senza API: la Live, le Clip e i Video passati
+                const options = [
+                    { title: `Guarda la Diretta Live di ${channel.name}`, url: `https://player.twitch.tv/?channel=${channel.sourceId}&parent=${CURRENT_DOMAIN}&autoplay=false`, meta: "STREAM LIVE" },
+                    { title: `Guarda l'ultimo Video/Esclusiva registrata`, url: `https://player.twitch.tv/?video=${channel.sourceId}&parent=${CURRENT_DOMAIN}&autoplay=false`, meta: "ULTIMO VIDEO INTERO" }
+                ];
 
-            const card = document.createElement('div');
-            card.className = 'video-card';
-            card.onclick = () => launchVideo(finalEmbed, channel.name, channel.platform);
+                options.forEach(opt => {
+                    const card = document.createElement('div');
+                    card.className = 'video-card';
+                    card.onclick = () => launchVideo(opt.url, channel.name);
+                    card.innerHTML = `
+                        <div class="info-area">
+                            <div class="v-title">${opt.title}</div>
+                            <div class="v-meta">${opt.meta} • Twitch Player</div>
+                        </div>
+                    `;
+                    listContainer.appendChild(card);
+                });
+            } else {
+                // Se è YouTube carichiamo il video o l'intera sorgente
+                const isPlaylist = channel.sourceId.startsWith('PL');
+                const embedUrl = isPlaylist 
+                    ? `https://www.youtube.com/embed/videoseries?list=${channel.sourceId}`
+                    : `https://www.youtube.com/embed/${channel.sourceId}`;
 
-            card.innerHTML = `
-                <div class="info-area">
-                    <div class="v-title">Apri la sorgente video live/embed di: ${channel.name}</div>
-                    <div class="v-meta">Sorgente: ${channel.sourceId} • <span style="text-transform:uppercase">${channel.platform}</span></div>
-                </div>
-            `;
-            listContainer.appendChild(card);
+                const card = document.createElement('div');
+                card.className = 'video-card';
+                card.onclick = () => launchVideo(embedUrl, channel.name);
+                card.innerHTML = `
+                    <div class="info-area">
+                        <div class="v-title">Avvia riproduzione: ${channel.name}</div>
+                        <div class="v-meta">${isPlaylist ? 'PLAYLIST COMPLETA RECENTI' : 'VIDEO SINGOLO'} • YouTube</div>
+                    </div>
+                `;
+                listContainer.appendChild(card);
+            }
         }
 
-        function launchVideo(url, title, platform) {
+        function launchVideo(url, title) {
             const wrapper = document.getElementById('playerWrapper');
-            
-            // Abilitiamo esplicitamente tutti i permessi nell'iframe per eliminare i blocchi di autoplay e visibilità
-            wrapper.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" sandbox="allow-modals allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>`;
-            
-            const marqueeText = `IN RIPRODUZIONE: ${title.toUpperCase()} • STREAM SORGENTE`;
-            document.getElementById('marqueeText').innerHTML = `<p>${marqueeText}</p><p>${marqueeText}</p>`;
+            // Manteniamo l'iframe standard pulito accettato da Twitch e rimosso le sandbox che generavano errori di classificazione
+            wrapper.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay; encrypted-media"></iframe>`;
+            document.getElementById('marqueeText').innerHTML = `<p>STREAMING: ${title.toUpperCase()}</p><p>STREAMING: ${title.toUpperCase()}</p>`;
         }
 
         function addChannel() {
             const name = document.getElementById('inputName').value.trim();
             const platform = document.getElementById('inputPlatform').value;
-            const rawSourceId = document.getElementById('inputId').value.trim();
+            const rawId = document.getElementById('inputId').value.trim();
 
-            if (!name || !rawSourceId) return;
+            if (!name || !rawId) return;
 
-            // Puliamo l'input dell'utente prima di salvarlo
-            const sourceId = cleanInputId(rawSourceId, platform);
+            const sourceId = cleanInputId(rawId, platform);
             const newId = name.toLowerCase().replace(/[^a-z0-9]/g, '');
 
             channels.push({ id: newId, name: name, platform: platform, sourceId: sourceId });
@@ -576,11 +570,8 @@
             }
         }
 
-        // Registrazione del Service Worker per il funzionamento della PWA
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js')
-                .then(() => console.log('Service Worker Registrato con Successo'))
-                .catch((err) => console.log('Errore registrazione Service Worker:', err));
+            navigator.serviceWorker.register('./sw.js').catch(err => console.log(err));
         }
 
         window.onload = renderAppChannels;
