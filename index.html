@@ -9,6 +9,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0f0f0f">
 
+    <link rel="manifest" href="./manifest.json">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=YouTube+Sans:wght@700&display=swap" rel="stylesheet">
@@ -445,7 +447,6 @@
     <script>
         const CURRENT_DOMAIN = window.location.hostname || "localhost";
 
-        // Partiamo completamente vuoti senza nessun canale predefinito di default
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
 
@@ -486,7 +487,6 @@
             const listContainer = document.getElementById('videoList');
             listContainer.innerHTML = '';
 
-            // Generiamo l'embed pulito usando l'esatto ID inserito dall'utente senza inventare nulla
             const finalEmbed = channel.platform === 'youtube' 
                 ? `https://www.youtube.com/embed/${channel.sourceId}` 
                 : `https://player.twitch.tv/?channel=${channel.sourceId}&parent=${CURRENT_DOMAIN}`;
@@ -546,6 +546,13 @@
                 icon.innerText = 'settings';
                 currentView = 'home';
             }
+        }
+
+        // Registrazione del Service Worker per il funzionamento della PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js')
+                .then(() => console.log('Service Worker Registrato con Successo'))
+                .catch((err) => console.log('Errore registrazione Service Worker:', err));
         }
 
         window.onload = renderAppChannels;
