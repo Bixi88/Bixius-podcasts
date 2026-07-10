@@ -538,7 +538,7 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero feed in corso...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero rapido feed...</p>';
             
             loadedItems = [];
             currentVisibleCount = 10;
@@ -546,16 +546,17 @@
 
             if (channel.platform === 'youtube_channel') {
                 try {
-                    const feedUrl = encodeURIComponent(`https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`);
-                    const res = await fetch(`https://api.allorigins.win/get?url=${feedUrl}`);
-                    const data = await res.json();
+                    // Passaggio a corsproxy.io per performance nettamente superiori e istantanee
+                    const targetUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`;
+                    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
+                    const xmlText = await res.text();
                     
                     const parser = new DOMParser();
-                    const xmlDoc = parser.parseFromString(data.contents, "text/xml");
+                    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
                     const entries = xmlDoc.getElementsByTagName("entry");
 
                     if(entries.length === 0) {
-                        listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Nessun video trovato o feed non accessibile.</p>';
+                        listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Nessun video trovato o feed vuoto.</p>';
                         return;
                     }
 
@@ -572,7 +573,8 @@
                     displayItems();
 
                 } catch (err) {
-                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore nel caricamento del feed RSS.</p>';
+                    console.error(err);
+                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore di connessione al server proxy.</p>';
                 }
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
