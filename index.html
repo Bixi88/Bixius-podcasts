@@ -287,21 +287,20 @@
             transition: background-color 0.2s, transform 0.2s;
             align-items: center;
             
-            /* Animazione d'ingresso elegante */
+            /* Animazione premium morbida e graduale a tasselli */
             opacity: 0;
-            transform: translateY(15px);
-            animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            transform: translateX(-12px);
+            animation: materialFadeIn 0.55s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
         }
 
         .video-card:hover {
             background-color: var(--bg-surface-hover);
-            transform: scale(1.01);
         }
 
-        @keyframes fadeInUp {
+        @keyframes materialFadeIn {
             to {
                 opacity: 1;
-                transform: translateY(0);
+                transform: translateX(0);
             }
         }
 
@@ -316,24 +315,12 @@
             font-size: 14px;
             font-weight: 500;
             color: var(--text-main);
-            line-height: 1.3;
+            line-height: 1.35;
         }
 
         .v-meta {
-            display: flex;
-            align-items: center;
-            gap: 6px;
             font-size: 11px;
             color: var(--text-secondary);
-        }
-
-        .v-meta .badge-live {
-            background-color: var(--yt-red);
-            color: white;
-            padding: 1px 4px;
-            border-radius: 3px;
-            font-weight: 700;
-            font-size: 9px;
         }
 
         .settings-card {
@@ -455,6 +442,7 @@
     <script>
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
+        let displayedVideoUrls = new Set(); // Per evitare duplicati visivi tra i due caricamenti
 
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
@@ -515,32 +503,40 @@
             });
         }
 
-        // Stampa le card applicando l'animazione incrementale (staggered) per massima eleganza
-        function renderVideoCards(videoArray, listContainer, isDeepLoad = false) {
-            if (!isDeepLoad) {
+        // Gestisce l'aggiunta o la pittura iniziale dei video in modo incrementale
+        function appendVideoCards(videoArray, listContainer, isAppendOnly = false) {
+            if (!isAppendOnly) {
                 listContainer.innerHTML = '';
+                displayedVideoUrls.clear();
             }
+
             if (!videoArray || videoArray.length === 0) {
-                if (!isDeepLoad) listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Nessun video recente trovato.</p>';
+                if (!isAppendOnly) listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Nessun contenuto recente trovato.</p>';
                 return;
             }
 
-            videoArray.forEach((item, index) => {
+            let insertedCount = 0;
+            videoArray.forEach((item) => {
+                // Evita di inserire di nuovo i video già stampati a schermo durante la prima fase veloce
+                if (displayedVideoUrls.has(item.embedUrl)) return;
+                
+                displayedVideoUrls.add(item.embedUrl);
+
                 const card = document.createElement('div');
                 card.className = 'video-card';
                 card.onclick = () => launchVideo(item.embedUrl, item.title);
                 
-                // Effetto cascata (stagger) temporale basato sull'indice dell'elemento
-                card.style.animationDelay = `${index * 45}ms`;
+                // Ritardo incrementale (stagger) calibrato a 65ms per una transizione fluida e d'effetto
+                card.style.animationDelay = `${insertedCount * 65}ms`;
                 
-                const labelText = isDeepLoad ? 'Archivio storico • YouTube' : 'Istantaneo • RSS Feed';
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">${isDeepLoad ? '' : '<span class="badge-live">FAST</span>'} ${labelText}</div>
+                        <div class="v-meta">YouTube • Video Recente</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
+                insertedCount++;
             });
         }
 
@@ -554,14 +550,15 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Accesso ultra-rapido alla sorgente...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero in corso...</p>';
 
             if (channel.platform === 'youtube_channel') {
                 const ucId = channel.sourceId.trim();
                 
                 if (ucId.startsWith('UC')) {
-                    // --- FASE 1: CARICAMENTO ULTRA-RAPIDO (I primi 15 video via RSS2JSON) ---
-                    let fastVideosLoaded = false;
+                    let initialLoadSuccess = false;
+
+                    // --- FASE 1: IMMISSIONE IMMEDIATA (I primi 15 video via RSS2JSON) ---
                     try {
                         const fastFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
                         const fastRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(fastFeedUrl)}`);
@@ -575,16 +572,15 @@
                                     embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
                                 };
                             });
-                            // Butta subito a schermo i primi 15 istantaneamente
-                            renderVideoCards(fastParsed, listContainer, false);
-                            fastVideosLoaded = true;
+                            // Pinta subito i primi 15 elementi cancellando il caricamento iniziale
+                            appendVideoCards(fastParsed, listContainer, false);
+                            initialLoadSuccess = true;
                         }
                     } catch (e) {
-                        console.log("Caricamento rapido iniziale fallito, attendo il deep load...");
+                        console.log("Fase 1 rapida saltata, attendo i dati asincroni della playlist...");
                     }
 
-                    // --- FASE 2: CARICAMENTO PROFONDO E ASINCRONO (Sblocca i 30 video tramite playlist UU) ---
-                    // Questa esecuzione avviene mentre l'utente sta già guardando o scrollando i primi 15 risultati
+                    // --- FASE 2: INTEGRAZIONE AD ONDA (Carica i 30 video totali e li aggancia in fondo) ---
                     setTimeout(async () => {
                         const uuPlaylistId = 'UU' + ucId.substring(2);
                         const deepFeedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
@@ -612,7 +608,7 @@
                                     if (xmlText && xmlText.includes('<entry>')) break;
                                 }
                             } catch (e) {
-                                console.log("Proxy alternativo per deep loading...");
+                                console.log("Proxy in failover per recupero dati profondi...");
                             }
                         }
 
@@ -637,20 +633,21 @@
                                 }
 
                                 if (deepParsedVideos.length > 0) {
-                                    // Sostituiamo fluidamente l'elenco con la lista intera da 30 video nativi animati
-                                    renderVideoCards(deepParsedVideos.slice(0, 30), listContainer, false);
+                                    // I primi 15 rimangono fermi e intatti, i successivi vengono appesi in coda
+                                    // Se la Fase 1 fosse fallita, questo blocco disegnerà comunque tutti i 30 video da zero
+                                    appendVideoCards(deepParsedVideos.slice(0, 30), listContainer, initialLoadSuccess);
                                     return;
                                 }
                             } catch (err) {
-                                console.error("Errore nel parsing asincrono:", err);
+                                console.error("Errore nel parsing dell'estensione lista:", err);
                             }
                         }
 
-                        // Se il deep load fallisce e non avevamo caricato nulla all'inizio, mostra un errore
-                        if (!fastVideosLoaded) {
-                            listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile connettersi a YouTube.</p>';
+                        // Se entrambi i tentativi falliscono e lo schermo è vuoto, mostra l'avviso
+                        if (!initialLoadSuccess) {
+                            listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile aggiornare la lista video.</p>';
                         }
-                    }, 100); // Esecuzione immediata subito dopo la prima pittura dello schermo
+                    }, 50);
                 }
 
             } else if (channel.platform === 'youtube_video') {
@@ -671,7 +668,7 @@
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">Apri i Video e la Live di ${channel.name} su App Esterna</div>
-                        <div class="v-meta">Clicca qui per deviare la navigazione su Twitch direttamente</div>
+                        <div class="v-meta">Devia navigazione su piattaforma esterna Twitch</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
