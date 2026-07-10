@@ -434,8 +434,8 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>ID Video / Username Canale</label>
-                <input type="text" id="inputId" class="form-control" placeholder="Inserisci ID video o nome utente Twitch">
+                <label>ID Video, Link Completo o Username Canale</label>
+                <input type="text" id="inputId" class="form-control" placeholder="Incolla l'ID o il link completo qui">
             </div>
             <div class="btn-row">
                 <button class="btn btn-secondary" onclick="toggleView()">Annulla</button>
@@ -449,6 +449,28 @@
 
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
+
+        // Funzione helper intelligente per estrarre solo l'ID puro se l'utente incolla un URL intero
+        function cleanInputId(input, platform) {
+            let clean = input.trim();
+            if (platform === 'twitch') {
+                // Se inserisce un URL di twitch tipo https://www.twitch.tv/username estrae solo l'ultimo pezzo
+                if (clean.includes('twitch.tv/')) {
+                    const parts = clean.split('twitch.tv/');
+                    if (parts[1]) clean = parts[1].split('/')[0].split('?')[0];
+                }
+            } else if (platform === 'youtube') {
+                // Se inserisce link estesi di youtube estrae l'ID video v=...
+                if (clean.includes('v=')) {
+                    clean = clean.split('v=')[1].split('&')[0];
+                } else if (clean.includes('youtu.be/')) {
+                    clean = clean.split('youtu.be/')[1].split('?')[0];
+                } else if (clean.includes('embed/')) {
+                    clean = clean.split('embed/')[1].split('?')[0];
+                }
+            }
+            return clean;
+        }
 
         function renderAppChannels() {
             const slider = document.getElementById('channelsSlider');
@@ -487,13 +509,14 @@
             const listContainer = document.getElementById('videoList');
             listContainer.innerHTML = '';
 
+            // Generiamo l'embed pulito usando l'esatto ID estratto
             const finalEmbed = channel.platform === 'youtube' 
                 ? `https://www.youtube.com/embed/${channel.sourceId}` 
-                : `https://player.twitch.tv/?channel=${channel.sourceId}&parent=${CURRENT_DOMAIN}`;
+                : `https://player.twitch.tv/?channel=${channel.sourceId}&parent=${CURRENT_DOMAIN}&autoplay=false`;
 
             const card = document.createElement('div');
             card.className = 'video-card';
-            card.onclick = () => launchVideo(finalEmbed, channel.name);
+            card.onclick = () => launchVideo(finalEmbed, channel.name, channel.platform);
 
             card.innerHTML = `
                 <div class="info-area">
@@ -504,9 +527,12 @@
             listContainer.appendChild(card);
         }
 
-        function launchVideo(url, title) {
+        function launchVideo(url, title, platform) {
             const wrapper = document.getElementById('playerWrapper');
-            wrapper.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay; encrypted-media"></iframe>`;
+            
+            // Abilitiamo esplicitamente tutti i permessi nell'iframe per eliminare i blocchi di autoplay e visibilità
+            wrapper.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" sandbox="allow-modals allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>`;
+            
             const marqueeText = `IN RIPRODUZIONE: ${title.toUpperCase()} • STREAM SORGENTE`;
             document.getElementById('marqueeText').innerHTML = `<p>${marqueeText}</p><p>${marqueeText}</p>`;
         }
@@ -514,10 +540,12 @@
         function addChannel() {
             const name = document.getElementById('inputName').value.trim();
             const platform = document.getElementById('inputPlatform').value;
-            const sourceId = document.getElementById('inputId').value.trim();
+            const rawSourceId = document.getElementById('inputId').value.trim();
 
-            if (!name || !sourceId) return;
+            if (!name || !rawSourceId) return;
 
+            // Puliamo l'input dell'utente prima di salvarlo
+            const sourceId = cleanInputId(rawSourceId, platform);
             const newId = name.toLowerCase().replace(/[^a-z0-9]/g, '');
 
             channels.push({ id: newId, name: name, platform: platform, sourceId: sourceId });
