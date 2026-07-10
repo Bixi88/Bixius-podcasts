@@ -497,6 +497,14 @@
 
         function getYouTubeIdFromFeedLink(link) {
             if (!link) return '';
+            try {
+                const urlObj = new URL(link);
+                const params = new URLSearchParams(urlObj.search);
+                if (params.has('v')) {
+                    return params.get('v').trim();
+                }
+            } catch(e) {}
+            
             if (link.includes('v=')) {
                 return link.split('v=')[1].split('&')[0].trim();
             }
@@ -579,14 +587,14 @@
                 listContainer.appendChild(card);
             } else if (channel.platform === 'twitch') {
                 listContainer.innerHTML = '';
-                // Rimosso qualsiasi automatismo sul player in alto. Genera solo il tasto per aprire Twitch esternamente.
+                // Rimosso qualsiasi iframe in alto. Ora inserisce un pulsante d'azione pulito per aprire la live/VOD
                 const card = document.createElement('div');
                 card.className = 'video-card';
                 card.onclick = () => window.open(`https://www.twitch.tv/${channel.sourceId}/videos`, '_blank');
                 card.innerHTML = `
                     <div class="info-area">
-                        <div class="v-title">Apri l'elenco dei Video Registrati / VOD su Twitch</div>
-                        <div class="v-meta">Clicca per aprire l'applicazione esterna • Twitch</div>
+                        <div class="v-title">Apri i Video e la Live di ${channel.name} su App Esterna</div>
+                        <div class="v-meta">Clicca qui per deviare la navigazione su Twitch direttamente</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
