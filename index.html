@@ -407,14 +407,14 @@
             <div class="form-group">
                 <label>Piattaforma</label>
                 <select id="inputPlatform" class="form-control" onchange="updatePlaceholder()">
-                    <option value="youtube_channel">YouTube (Link canale, @handle, o ID UC...)</option>
+                    <option value="youtube_channel">YouTube (Solo ID Canale UC...)</option>
                     <option value="youtube_video">YouTube (ID Singolo Video o Playlist ID)</option>
                     <option value="twitch">Twitch (Nome Utente Canale)</option>
                 </select>
             </div>
             <div class="form-group">
-                <label id="idLabel">Link Canale, Handle o ID Completo</label>
-                <input type="text" id="inputId" class="form-control" placeholder="Incolla qui...">
+                <label id="idLabel">ID Canale UC...</label>
+                <input type="text" id="inputId" class="form-control" placeholder="Incolla l'ID qui...">
             </div>
             <div class="btn-row">
                 <button class="btn btn-secondary" onclick="toggleView()">Chiudi</button>
@@ -433,12 +433,16 @@
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
             const label = document.getElementById('idLabel');
+            const input = document.getElementById('inputId');
             if(platform === 'twitch') {
                 label.innerText = "Nome Utente Twitch (Es: pregianza)";
+                input.placeholder = "pregianza";
             } else if (platform === 'youtube_channel') {
-                label.innerText = "Link completo, @handle o ID Canale UC...";
+                label.innerText = "ID Canale YouTube UC... (Metti direttamente l'ID)";
+                input.placeholder = "UCxxxxxxxxxxxxxxxxx";
             } else {
                 label.innerText = "ID Video Singolo o ID Playlist (Es: PL...)";
+                input.placeholder = "Incolla l'ID...";
             }
         }
 
@@ -457,10 +461,7 @@
                     clean = clean.split('list=')[1].split('&')[0];
                 }
             } else if (platform === 'youtube_channel') {
-                // Rimuove spazi e l'eventuale URL iniziale se inserito intero, tenendo solo l'handle o l'ID
-                if (clean.includes('/@')) {
-                    clean = '@' + clean.split('/@')[1].split('/')[0].split('?')[0];
-                } else if (clean.includes('youtube.com/channel/')) {
+                if (clean.includes('youtube.com/channel/')) {
                     clean = clean.split('youtube.com/channel/')[1].split('/')[0].split('?')[0];
                 }
             }
@@ -490,6 +491,10 @@
 
         function renderVideoCards(videoArray, listContainer) {
             listContainer.innerHTML = '';
+            if (!videoArray || videoArray.length === 0) {
+                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Nessun video recente trovato.</p>';
+                return;
+            }
             videoArray.forEach(item => {
                 const card = document.createElement('div');
                 card.className = 'video-card';
@@ -497,39 +502,11 @@
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">Aggiornato • YouTube</div>
+                        <div class="v-meta">In tempo reale • YouTube</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
             });
-        }
-
-        // Funzione di Fallback Se lo scraping profondo fallisce: usa il classico feed RSS (15 video)
-        async function fetchFallbackRSS(sourceId, listContainer) {
-            try {
-                let feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${sourceId}`;
-                if (!sourceId.startsWith('UC')) {
-                    feedUrl = `https://www.youtube.com/feeds/videos.xml?user=${sourceId.replace('@', '')}`;
-                }
-                const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
-                const data = await res.json();
-                if (data.status === 'ok' && data.items && data.items.length > 0) {
-                    const fallbackVideos = data.items.map(item => {
-                        let vId = '';
-                        if (item.link.includes('v=')) vId = item.link.split('v=')[1].split('&')[0];
-                        else vId = item.link.split('/').pop();
-                        return {
-                            title: item.title,
-                            embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
-                        };
-                    });
-                    renderVideoCards(fallbackVideos, listContainer);
-                } else {
-                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile recuperare i video. Controlla il link o l\'ID inserito.</p>';
-                }
-            } catch(e) {
-                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore critico di connessione.</p>';
-            }
         }
 
         async function selectChannel(id) {
@@ -542,63 +519,42 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Caricamento tempo reale (Ultimi 30 video)...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Caricamento tempo reale (30 video)...</p>';
 
             if (channel.platform === 'youtube_channel') {
-                let targetUrl = '';
-                if (channel.sourceId.startsWith('UC')) {
-                    targetUrl = `https://www.youtube.com/channel/${channel.sourceId}/videos`;
-                } else {
-                    const handle = channel.sourceId.startsWith('@') ? channel.sourceId : '@' + channel.sourceId;
-                    targetUrl = `https://www.youtube.com/${handle}/videos`;
-                }
+                const ucId = channel.sourceId.trim();
+                
+                // TRUCCO DEFINITIVO: Trasformiamo l'ID Canale (UC...) in ID Playlist dei Caricamenti del canale (UU...)
+                // Questo feed RSS non ha il blocco rigido dei 15 video e caricando tramite rss2json con &count=30 estraiamo tutto istantaneamente.
+                if (ucId.startsWith('UC')) {
+                    const uuPlaylistId = 'UU' + ucId.substring(2);
+                    const feedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
+                    const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&count=30`;
 
-                try {
-                    // Chiamata proxy CORS stabile ed efficiente per leggere la pagina dei video nativa
-                    const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
-                    if (!response.ok) throw new Error("Proxy offline");
-                    
-                    const data = await response.json();
-                    const html = data.contents;
-                    
-                    // Individuiamo l'oggetto ytInitialData inserito da YouTube nel DOM
-                    const jsonRegex = /var ytInitialData\s*=\s*({.+?});/;
-                    const match = html.match(jsonRegex);
-                    
-                    if (match && match[1]) {
-                        const jsonObj = JSON.parse(match[1]);
+                    try {
+                        const response = await fetch(apiUrl);
+                        const data = await response.json();
                         
-                        // Navighiamo la struttura ad albero profonda di YouTube per estrarre la griglia dei video caricati
-                        let tabs = jsonObj.contents?.twoColumnBrowseResultsRenderer?.tabs;
-                        let videoTab = tabs?.find(t => t.tabRenderer?.selected || t.tabRenderer?.title === "Video" || t.tabRenderer?.endpoint?.browseEndpoint?.canonicalBaseUrl?.includes('/videos'));
-                        let gridItems = videoTab?.tabRenderer?.content?.richGridRenderer?.contents || [];
-                        
-                        let parsedVideos = [];
-                        
-                        gridItems.forEach(item => {
-                            let videoData = item.richItemRenderer?.content?.videoRenderer;
-                            if (videoData && videoData.videoId) {
-                                parsedVideos.push({
-                                    title: videoData.title?.runs?.[0]?.text || videoData.title?.simpleText || "Video senza titolo",
-                                    embedUrl: `https://www.youtube.com/embed/${videoData.videoId}?autoplay=1&modestbranding=1&rel=0`
-                                });
-                            }
-                        });
-
-                        // Se abbiamo trovato i video della pagina (solitamente 30), li stampiamo subito
-                        if (parsedVideos.length > 0) {
+                        if (data.status === 'ok' && data.items && data.items.length > 0) {
+                            const parsedVideos = data.items.map(item => {
+                                let vId = '';
+                                if (item.link.includes('v=')) vId = item.link.split('v=')[1].split('&')[0];
+                                else vId = item.link.split('/').pop();
+                                return {
+                                    title: item.title,
+                                    embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
+                                };
+                            });
                             renderVideoCards(parsedVideos, listContainer);
                         } else {
-                            // Se la scheda video è vuota o ha un formato alternativo, avvia il fallback RSS
-                            await fetchFallbackRSS(channel.sourceId, listContainer);
+                            // Se fallisce la playlist UU, proviamo il classico feed RSS di riserva
+                            await fetchFallbackClassicRSS(ucId, listContainer);
                         }
-                    } else {
-                        // Se l'oggetto JSON non viene trovato nel sorgente, attiva il fallback RSS
-                        await fetchFallbackRSS(channel.sourceId, listContainer);
+                    } catch (err) {
+                        await fetchFallbackClassicRSS(ucId, listContainer);
                     }
-                } catch (err) {
-                    console.log("Scraping fallito, avvio Fallback RSS...", err);
-                    await fetchFallbackRSS(channel.sourceId, listContainer);
+                } else {
+                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore: Inserisci un ID canale valido che inizia per UC.</p>';
                 }
 
             } else if (channel.platform === 'youtube_video') {
@@ -626,6 +582,29 @@
             }
         }
 
+        // Fallback classico se il trucco della playlist UU dovesse fallire
+        async function fetchFallbackClassicRSS(ucId, listContainer) {
+            try {
+                const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
+                const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
+                const data = await res.json();
+                if (data.status === 'ok' && data.items && data.items.length > 0) {
+                    const fallbackVideos = data.items.map(item => {
+                        let vId = item.link.includes('v=') ? item.link.split('v=')[1].split('&')[0] : item.link.split('/').pop();
+                        return {
+                            title: item.title,
+                            embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
+                        };
+                    });
+                    renderVideoCards(fallbackVideos, listContainer);
+                } else {
+                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare i video per questo canale.</p>';
+                }
+            } catch(e) {
+                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore di connessione.</p>';
+            }
+        }
+
         function launchVideo(url, title) {
             const wrapper = document.getElementById('playerWrapper');
             wrapper.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe>`;
@@ -639,7 +618,6 @@
 
             if (!name || !rawId) return;
 
-            // Pulizia istantanea dell'ID o dell'handle, nessuna attesa asincrona bloccante
             let sourceId = cleanInputId(rawId, platform);
             const newId = name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(Math.random() * 1000);
 
