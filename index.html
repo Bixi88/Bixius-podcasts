@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Bixius's Choice Podcasts</title>
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f0f0f">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=YouTube+Sans:wght@700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-main: #0f0f0f;
+            --bg-surface: #212121;
+            --bg-surface-hover: #272727;
+            --text-main: #ffffff;
+            --text-secondary: #aaaaaa;
+            --yt-red: #ff0000;
+            --twitch-purple: #9146ff;
+            --font-yt: 'YouTube Sans', 'Roboto', sans-serif;
+            --font-main: 'Roboto', sans-serif;
+            --radius-player: 16px;
+            --radius-card: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            overflow-x: hidden;
+            padding-bottom: 60px;
+        }
+
+        .top-bar {
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            background-color: var(--bg-main);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand .play-logo {
+            color: var(--yt-red);
+            font-size: 28px;
+        }
+
+        .brand h1 {
+            font-family: var(--font-yt);
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.6px;
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            color: var(--text-main);
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+
+        .icon-btn:hover {
+            background-color: var(--bg-surface-hover);
+        }
+
+        .container {
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 0 16px;
+        }
+
+        .view-panel {
+            display: none;
+        }
+
+        .view-panel.active {
+            display: block;
+        }
+
+        .marquee-wrapper {
+            position: relative;
+            background-color: var(--bg-surface);
+            padding: 10px 0;
+            border-radius: var(--radius-player) var(--radius-player) 0 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            margin-top: 12px;
+        }
+
+        .marquee-wrapper::before, .marquee-wrapper::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            width: 40px;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+        }
+        .marquee-wrapper::before { left: 0; background: linear-gradient(to right, var(--bg-surface), transparent); }
+        .marquee-wrapper::after { right: 0; background: linear-gradient(to left, var(--bg-surface), transparent); }
+
+        .marquee-content {
+            display: flex;
+            white-space: nowrap;
+            gap: 60px;
+            animation: marquee-anim 20s linear infinite;
+        }
+
+        .marquee-content p {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        @keyframes marquee-anim {
+            0% { transform: translateX(0%); }
+            100% { transform: translateX(-50%); }
+        }
+
+        .player-section {
+            margin-bottom: 24px;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+            border-radius: 0 0 var(--radius-player) var(--radius-player);
+            overflow: hidden;
+            background-color: var(--bg-surface);
+        }
+
+        .player-wrapper {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            position: relative;
+        }
+
+        .player-wrapper iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .no-video-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            gap: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .no-video-placeholder i {
+            font-size: 48px;
+            color: var(--yt-red);
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 12px;
+            padding-left: 4px;
+        }
+
+        .channels-slider {
+            display: flex;
+            gap: 16px;
+            overflow-x: auto;
+            padding: 6px 4px 16px 4px;
+            scroll-behavior: smooth;
+        }
+
+        .channels-slider::-webkit-scrollbar {
+            display: none;
+        }
+
+        .channel-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: transform 0.2s;
+        }
+
+        .avatar-circle {
+            position: relative;
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            padding: 3px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: transparent;
+            transition: all 0.3s;
+        }
+
+        .channel-item .avatar-placeholder {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-color: #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 24px;
+            border: 3px solid var(--bg-main);
+        }
+
+        .channel-item.active .avatar-circle {
+            background: linear-gradient(45deg, var(--yt-red), #ff6b6b);
+            animation: pulse-eff 2s infinite ease-in-out;
+        }
+
+        .channel-item.twitch-type.active .avatar-circle {
+            background: linear-gradient(45deg, var(--twitch-purple), #a970ff);
+            animation: pulse-eff-twitch 2s infinite ease-in-out;
+        }
+
+        .channel-item span {
+            font-size: 11px;
+            font-weight: 500;
+            max-width: 76px;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text-secondary);
+        }
+
+        .channel-item.active span {
+            color: var(--text-main);
+            font-weight: 700;
+        }
+
+        @keyframes pulse-eff {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.04); }
+        }
+        @keyframes pulse-eff-twitch {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.04); }
+        }
+
+        .video-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .video-card {
+            display: flex;
+            gap: 12px;
+            padding: 12px;
+            background-color: var(--bg-surface);
+            border-radius: var(--radius-card);
+            cursor: pointer;
+            transition: background-color 0.2s;
+            align-items: center;
+        }
+
+        .video-card:hover {
+            background-color: var(--bg-surface-hover);
+        }
+
+        .info-area {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            width: 100%;
+        }
+
+        .v-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+
+        .v-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .settings-card {
+            background-color: var(--bg-surface);
+            padding: 20px;
+            border-radius: var(--radius-player);
+            margin-top: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+
+        .settings-card h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 8px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .form-control {
+            width: 100%;
+            background-color: #161616;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 12px;
+            margin-top: 8px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 11px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .btn-primary { background-color: var(--yt-red); color: #fff; }
+        .btn-secondary { background-color: #333; color: #fff; }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        <div class="brand">
+            <i class="material-icons-round play-logo">play_circle_filled</i>
+            <h1 id="appTitle">Bixius's Choice Podcasts</h1>
+        </div>
+        <button class="icon-btn" id="toggleViewBtn" onclick="toggleView()">
+            <i class="material-icons-round" id="viewIcon">settings</i>
+        </button>
+    </div>
+
+    <div id="homePanel" class="container view-panel active">
+        <div class="marquee-wrapper">
+            <div class="marquee-content" id="marqueeText">
+                <p>Nessun video in riproduzione • Aggiungi e seleziona un canale per iniziare</p>
+                <p>Nessun video in riproduzione • Aggiungi e seleziona un canale per iniziare</p>
+            </div>
+        </div>
+
+        <div class="player-section">
+            <div class="player-wrapper" id="playerWrapper">
+                <div class="no-video-placeholder">
+                    <i class="material-icons-round">play_arrow</i>
+                    <p>Fai click su un canale e seleziona il contenuto per riprodurlo</p>
+                </div>
+            </div>
+        </div>
+
+        <h2 class="section-title">I tuoi canali scelti</h2>
+        <div class="channels-slider" id="channelsSlider"></div>
+
+        <h2 class="section-title" id="currentChannelTitle" style="display:none;">Contenuto disponibile</h2>
+        <div class="video-list" id="videoList">
+            <p id="initialPlaceholder" style="padding: 24px 4px; color: var(--text-secondary); text-align: center; font-size: 14px;">
+                Usa l'icona dell'ingranaggio in alto a destra per inserire i tuoi canali preferiti.
+            </p>
+        </div>
+    </div>
+
+    <div id="settingsPanel" class="container view-panel">
+        <div class="settings-card">
+            <h2>Aggiungi un nuovo canale / podcast</h2>
+            <div class="form-group">
+                <label>Nome del Canale o Show</label>
+                <input type="text" id="inputName" class="form-control" placeholder="Es. Mio Canale...">
+            </div>
+            <div class="form-group">
+                <label>Piattaforma Principale</label>
+                <select id="inputPlatform" class="form-control">
+                    <option value="youtube">YouTube</option>
+                    <option value="twitch">Twitch</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>ID Video / Username Canale</label>
+                <input type="text" id="inputId" class="form-control" placeholder="Inserisci ID video o nome utente Twitch">
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-secondary" onclick="toggleView()">Annulla</button>
+                <button class="btn btn-primary" onclick="addChannel()">Salva Canale</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CURRENT_DOMAIN = window.location.hostname || "localhost";
+
+        // Partiamo completamente vuoti senza nessun canale predefinito di default
+        let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
+        let currentView = 'home';
+
+        function renderAppChannels() {
+            const slider = document.getElementById('channelsSlider');
+            slider.innerHTML = '';
+
+            if(channels.length === 0) {
+                slider.innerHTML = `<p style="font-size:13px; color:var(--text-secondary); padding: 10px 4px;">Nessun canale salvato</p>`;
+                return;
+            }
+
+            channels.forEach(chan => {
+                const item = document.createElement('div');
+                item.className = `channel-item ${chan.platform === 'twitch' ? 'twitch-type' : ''}`;
+                item.id = `app-chan-${chan.id}`;
+                item.onclick = () => selectChannel(chan.id);
+
+                item.innerHTML = `
+                    <div class="avatar-circle">
+                        <div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div>
+                    </div>
+                    <span>${chan.name}</span>
+                `;
+                slider.appendChild(item);
+            });
+        }
+
+        function selectChannel(id) {
+            document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+            const selectedEl = document.getElementById(`app-chan-${id}`);
+            if (selectedEl) selectedEl.classList.add('active');
+
+            const channel = channels.find(c => c.id === id);
+            document.getElementById('currentChannelTitle').innerText = `Contenuto di: ${channel.name}`;
+            document.getElementById('currentChannelTitle').style.display = 'block';
+
+            const listContainer = document.getElementById('videoList');
+            listContainer.innerHTML = '';
+
+            // Generiamo l'embed pulito usando l'esatto ID inserito dall'utente senza inventare nulla
+            const finalEmbed = channel.platform === 'youtube' 
+                ? `https://www.youtube.com/embed/${channel.sourceId}` 
+                : `https://player.twitch.tv/?channel=${channel.sourceId}&parent=${CURRENT_DOMAIN}`;
+
+            const card = document.createElement('div');
+            card.className = 'video-card';
+            card.onclick = () => launchVideo(finalEmbed, channel.name);
+
+            card.innerHTML = `
+                <div class="info-area">
+                    <div class="v-title">Apri la sorgente video live/embed di: ${channel.name}</div>
+                    <div class="v-meta">Sorgente: ${channel.sourceId} • <span style="text-transform:uppercase">${channel.platform}</span></div>
+                </div>
+            `;
+            listContainer.appendChild(card);
+        }
+
+        function launchVideo(url, title) {
+            const wrapper = document.getElementById('playerWrapper');
+            wrapper.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay; encrypted-media"></iframe>`;
+            const marqueeText = `IN RIPRODUZIONE: ${title.toUpperCase()} • STREAM SORGENTE`;
+            document.getElementById('marqueeText').innerHTML = `<p>${marqueeText}</p><p>${marqueeText}</p>`;
+        }
+
+        function addChannel() {
+            const name = document.getElementById('inputName').value.trim();
+            const platform = document.getElementById('inputPlatform').value;
+            const sourceId = document.getElementById('inputId').value.trim();
+
+            if (!name || !sourceId) return;
+
+            const newId = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            channels.push({ id: newId, name: name, platform: platform, sourceId: sourceId });
+            localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+            
+            document.getElementById('inputName').value = '';
+            document.getElementById('inputId').value = '';
+            
+            renderAppChannels();
+            toggleView();
+        }
+
+        function toggleView() {
+            const home = document.getElementById('homePanel');
+            const settings = document.getElementById('settingsPanel');
+            const icon = document.getElementById('viewIcon');
+
+            if (currentView === 'home') {
+                home.classList.remove('active');
+                settings.classList.add('active');
+                icon.innerText = 'close';
+                currentView = 'settings';
+            } else {
+                settings.classList.remove('active');
+                home.classList.add('active');
+                icon.innerText = 'settings';
+                currentView = 'home';
+            }
+        }
+
+        window.onload = renderAppChannels;
+    </script>
+</body>
+</html>
