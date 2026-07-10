@@ -419,6 +419,16 @@
     </div>
 
     <div id="settingsPanel" class="container view-panel">
+        <div class="settings-card" style="margin-bottom: 20px; border: 1px solid rgba(255,0,0,0.2);">
+            <h2 style="font-size:16px; margin-bottom:12px; color: var(--yt-red); display:flex; align-items:center; gap:6px;">
+                <i class="material-icons-round" style="font-size:20px;">vpn_key</i> Configurazione YouTube API
+            </h2>
+            <div class="form-group">
+                <label>YouTube Data API v3 Key (Salvata in locale)</label>
+                <input type="password" id="inputApiKey" class="form-control" placeholder="Incolla qui la tua API Key di Google..." oninput="saveApiKey()">
+            </div>
+        </div>
+
         <div class="settings-card">
             <h2 style="font-size:18px; margin-bottom:12px;">Gestione Canali</h2>
             <div class="form-group">
@@ -448,21 +458,30 @@
     </div>
 
     <script>
-        // ==========================================
-        // INCOLLA LA TUA CHIAVE API DI GOOGLE QUI SOTTO:
-        const YOUTUBE_API_KEY = "LA_TUA_CHIAVE_QUI"; 
-        // ==========================================
-
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
         let displayedVideoUrls = new Set();
         
-        // Caching locale ed infinite-scroll virtuale
         let activeChannelId = null;
-        let localVideoCache = [];      // Contiene fino a 30 video scaricati dall'API
-        let currentRenderedCount = 0;  // Quanti ne stiamo mostrando a schermo (10, 20, 30...)
-        let nextPageToken = "";        // Token per i successivi 30 video reali
+        let localVideoCache = [];      
+        let currentRenderedCount = 0;  
+        let nextPageToken = "";        
         let isProcessingScroll = false;
+
+        // Funzioni di gestione della Chiave API tramite interfaccia grafica
+        function loadApiKey() {
+            const savedKey = localStorage.getItem('bixius_yt_api_key') || "";
+            document.getElementById('inputApiKey').value = savedKey;
+        }
+
+        function saveApiKey() {
+            const keyFieldValue = document.getElementById('inputApiKey').value.trim();
+            localStorage.setItem('bixius_yt_api_key', keyFieldValue);
+        }
+
+        function getApiKey() {
+            return localStorage.getItem('bixius_yt_api_key') || "";
+        }
 
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
@@ -491,8 +510,10 @@
                     clean = clean.split('v=')[1].split('&')[0];
                 } else if (clean.includes('youtu.be/')) {
                     clean = clean.split('youtu.be/')[1].split('?')[0];
-                } else if (clean.includes('list=')) {
-                    clean = clean.split('list=')[1].split('&')[0];
+                } {
+                    if (clean.includes('list=')) {
+                        clean = clean.split('list=')[1].split('&')[0];
+                    }
                 }
             } else if (platform === 'youtube_channel') {
                 if (clean.includes('youtube.com/channel/')) {
@@ -523,7 +544,6 @@
             });
         }
 
-        // Funzione per renderizzare a blocchi di 10
         function renderNextBlock() {
             const listContainer = document.getElementById('videoList');
             const totalAvailable = localVideoCache.length;
@@ -553,7 +573,6 @@
             });
 
             currentRenderedCount = end;
-            console.log(`[DEBUG] Renderizzati a schermo: ${currentRenderedCount}/${totalAvailable} video.`);
             return true;
         }
 
@@ -570,7 +589,6 @@
             listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero in corso...</p>';
             document.getElementById('loadingIndicator').style.display = 'none';
 
-            // Reset completo dello stato locale
             activeChannelId = id;
             localVideoCache = [];
             currentRenderedCount = 0;
@@ -606,15 +624,16 @@
 
         async function fetchYouTubeBatch(ucId, appendNetwork = false) {
             const listContainer = document.getElementById('videoList');
-            if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === "LA_TUA_CHIAVE_QUI") {
-                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--yt-red);">Errore: Incolla l\'API KEY su index.html!</p>';
+            const apiKey = getApiKey();
+
+            if (!apiKey) {
+                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--yt-red);">Errore: Incolla la tua YouTube API KEY nel pannello delle impostazioni (icona ingranaggio)!</p>';
                 return;
             }
 
             try {
                 const uuPlaylistId = 'UU' + ucId.trim().substring(2);
-                // Scarichiamo pacchetti da 30 video per ottimizzare la quota API al 100%
-                let apiEndpoint = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=30&playlistId=${uuPlaylistId}&key=${YOUTUBE_API_KEY}`;
+                let apiEndpoint = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=30&playlistId=${uuPlaylistId}&key=${apiKey}`;
                 
                 if (appendNetwork && nextPageToken) {
                     apiEndpoint += `&pageToken=${nextPageToken}`;
@@ -650,7 +669,6 @@
                     localVideoCache = localVideoCache.concat(tempArray);
                 }
 
-                // Renderizziamo i primi 10 di questo blocco
                 renderNextBlock();
 
             } catch (err) {
@@ -661,28 +679,24 @@
             }
         }
 
-        // Gestore dello scroll intelligente
         window.onscroll = async function() {
             if (!activeChannelId) return;
 
             const channel = channels.find(c => c.id === activeChannelId);
             if (!channel || channel.platform !== 'youtube_channel') return;
 
-            // Se siamo vicini al fondo della pagina
             if ((window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 150) {
                 if (isProcessingScroll) return;
                 isProcessingScroll = true;
 
-                // 1. Controlliamo se abbiamo altri video già pronti nella cache locale
                 if (currentRenderedCount < localVideoCache.length) {
                     document.getElementById('loadingIndicator').style.display = 'block';
                     setTimeout(() => {
                         renderNextBlock();
                         document.getElementById('loadingIndicator').style.display = 'none';
                         isProcessingScroll = false;
-                    }, 200); // Piccolo delay artificiale per dare fluidità all'animazione
+                    }, 200); 
                 } 
-                // 2. Se la cache locale è vuota ma YouTube ha altre pagine reali, facciamo una nuova chiamata API
                 else if (nextPageToken) {
                     document.getElementById('loadingIndicator').style.display = 'block';
                     await fetchYouTubeBatch(channel.sourceId, true);
@@ -753,7 +767,10 @@
             navigator.serviceWorker.register('./sw.js').catch(err => console.log("SW Error:", err));
         }
 
-        window.onload = renderAppChannels;
+        window.onload = function() {
+            loadApiKey();
+            renderAppChannels();
+        };
     </script>
 </body>
 </html>
