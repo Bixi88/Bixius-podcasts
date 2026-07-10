@@ -1,0 +1,18 @@
+{
+  "name": "Bixius's Choice Podcasts",
+  "short_name": "Bixius Choice",
+  "description": "La tua selezione di sorgenti video e podcast integrata.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f0f0f",
+  "theme_color": "#0f0f0f",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1384/1384060.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
