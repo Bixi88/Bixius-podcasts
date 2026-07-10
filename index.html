@@ -284,12 +284,25 @@
             background-color: var(--bg-surface);
             border-radius: var(--radius-card);
             cursor: pointer;
-            transition: background-color 0.2s;
+            transition: background-color 0.2s, transform 0.2s;
             align-items: center;
+            
+            /* Animazione d'ingresso elegante */
+            opacity: 0;
+            transform: translateY(15px);
+            animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
         .video-card:hover {
             background-color: var(--bg-surface-hover);
+            transform: scale(1.01);
+        }
+
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .info-area {
@@ -303,11 +316,24 @@
             font-size: 14px;
             font-weight: 500;
             color: var(--text-main);
+            line-height: 1.3;
         }
 
         .v-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             font-size: 11px;
             color: var(--text-secondary);
+        }
+
+        .v-meta .badge-live {
+            background-color: var(--yt-red);
+            color: white;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-weight: 700;
+            font-size: 9px;
         }
 
         .settings-card {
@@ -489,20 +515,29 @@
             });
         }
 
-        function renderVideoCards(videoArray, listContainer) {
-            listContainer.innerHTML = '';
+        // Stampa le card applicando l'animazione incrementale (staggered) per massima eleganza
+        function renderVideoCards(videoArray, listContainer, isDeepLoad = false) {
+            if (!isDeepLoad) {
+                listContainer.innerHTML = '';
+            }
             if (!videoArray || videoArray.length === 0) {
-                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Nessun video recente trovato.</p>';
+                if (!isDeepLoad) listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Nessun video recente trovato.</p>';
                 return;
             }
-            videoArray.forEach(item => {
+
+            videoArray.forEach((item, index) => {
                 const card = document.createElement('div');
                 card.className = 'video-card';
                 card.onclick = () => launchVideo(item.embedUrl, item.title);
+                
+                // Effetto cascata (stagger) temporale basato sull'indice dell'elemento
+                card.style.animationDelay = `${index * 45}ms`;
+                
+                const labelText = isDeepLoad ? 'Archivio storico • YouTube' : 'Istantaneo • RSS Feed';
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">In tempo reale • YouTube</div>
+                        <div class="v-meta">${isDeepLoad ? '' : '<span class="badge-live">FAST</span>'} ${labelText}</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -519,79 +554,104 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Caricamento tempo reale (Ultimi 30 video)...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Accesso ultra-rapido alla sorgente...</p>';
 
             if (channel.platform === 'youtube_channel') {
                 const ucId = channel.sourceId.trim();
                 
                 if (ucId.startsWith('UC')) {
-                    // Trasformiamo l'ID Canale (UC...) nell'ID Playlist dei Caricamenti del canale (UU...)
-                    const uuPlaylistId = 'UU' + ucId.substring(2);
-                    const feedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
-                    
-                    // Strategia Multi-Proxy per evitare timeout o blocchi CORS
-                    const proxies = [
-                        `https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`,
-                        `https://corsproxy.io/?${encodeURIComponent(feedUrl)}`
-                    ];
-
-                    let xmlText = null;
-
-                    for (let proxyUrl of proxies) {
-                        try {
-                            const controller = new AbortController();
-                            const timeoutId = setTimeout(() => controller.abort(), 3000); // Failover rapido se un proxy è lento
-                            
-                            const res = await fetch(proxyUrl, { signal: controller.signal });
-                            clearTimeout(timeoutId);
-                            
-                            if (res.ok) {
-                                if (proxyUrl.includes('allorigins')) {
-                                    const data = await res.json();
-                                    xmlText = data.contents;
-                                } else {
-                                    xmlText = await res.text();
-                                }
-                                if (xmlText && xmlText.includes('<entry>')) break;
-                            }
-                        } catch (e) {
-                            console.log("Proxy lento o fallito, passo al successivo...");
+                    // --- FASE 1: CARICAMENTO ULTRA-RAPIDO (I primi 15 video via RSS2JSON) ---
+                    let fastVideosLoaded = false;
+                    try {
+                        const fastFeedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
+                        const fastRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(fastFeedUrl)}`);
+                        const fastData = await fastRes.json();
+                        
+                        if (fastData.status === 'ok' && fastData.items && fastData.items.length > 0) {
+                            const fastParsed = fastData.items.map(item => {
+                                let vId = item.link.includes('v=') ? item.link.split('v=')[1].split('&')[0] : item.link.split('/').pop();
+                                return {
+                                    title: item.title,
+                                    embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
+                                };
+                            });
+                            // Butta subito a schermo i primi 15 istantaneamente
+                            renderVideoCards(fastParsed, listContainer, false);
+                            fastVideosLoaded = true;
                         }
+                    } catch (e) {
+                        console.log("Caricamento rapido iniziale fallito, attendo il deep load...");
                     }
 
-                    if (xmlText) {
-                        try {
-                            const parser = new DOMParser();
-                            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-                            const entries = xmlDoc.getElementsByTagName("entry");
-                            
-                            let parsedVideos = [];
-                            for (let i = 0; i < entries.length; i++) {
-                                const entry = entries[i];
-                                const title = entry.getElementsByTagName("title")[0]?.textContent || "Video";
-                                const videoId = entry.getElementsByTagName("yt:videoId")[0]?.textContent;
+                    // --- FASE 2: CARICAMENTO PROFONDO E ASINCRONO (Sblocca i 30 video tramite playlist UU) ---
+                    // Questa esecuzione avviene mentre l'utente sta già guardando o scrollando i primi 15 risultati
+                    setTimeout(async () => {
+                        const uuPlaylistId = 'UU' + ucId.substring(2);
+                        const deepFeedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${uuPlaylistId}`;
+                        
+                        const proxies = [
+                            `https://api.allorigins.win/get?url=${encodeURIComponent(deepFeedUrl)}`,
+                            `https://corsproxy.io/?${encodeURIComponent(deepFeedUrl)}`
+                        ];
+
+                        let xmlText = null;
+                        for (let proxyUrl of proxies) {
+                            try {
+                                const controller = new AbortController();
+                                const timeoutId = setTimeout(() => controller.abort(), 3500);
+                                const res = await fetch(proxyUrl, { signal: controller.signal });
+                                clearTimeout(timeoutId);
                                 
-                                if (videoId) {
-                                    parsedVideos.push({
-                                        title: title,
-                                        embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
-                                    });
+                                if (res.ok) {
+                                    if (proxyUrl.includes('allorigins')) {
+                                        const data = await res.json();
+                                        xmlText = data.contents;
+                                    } else {
+                                        xmlText = await res.text();
+                                    }
+                                    if (xmlText && xmlText.includes('<entry>')) break;
                                 }
+                            } catch (e) {
+                                console.log("Proxy alternativo per deep loading...");
                             }
-
-                            if (parsedVideos.length > 0) {
-                                // Sfrutta l'elenco completo fino a 30 video generati dall'XML UU
-                                renderVideoCards(parsedVideos.slice(0, 30), listContainer);
-                                return;
-                            }
-                        } catch (err) {
-                            console.error("Errore nel parsing XML nativo:", err);
                         }
-                    }
+
+                        if (xmlText) {
+                            try {
+                                const parser = new DOMParser();
+                                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                                const entries = xmlDoc.getElementsByTagName("entry");
+                                
+                                let deepParsedVideos = [];
+                                for (let i = 0; i < entries.length; i++) {
+                                    const entry = entries[i];
+                                    const title = entry.getElementsByTagName("title")[0]?.textContent || "Video";
+                                    const videoId = entry.getElementsByTagName("yt:videoId")[0]?.textContent;
+                                    
+                                    if (videoId) {
+                                        deepParsedVideos.push({
+                                            title: title,
+                                            embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
+                                        });
+                                    }
+                                }
+
+                                if (deepParsedVideos.length > 0) {
+                                    // Sostituiamo fluidamente l'elenco con la lista intera da 30 video nativi animati
+                                    renderVideoCards(deepParsedVideos.slice(0, 30), listContainer, false);
+                                    return;
+                                }
+                            } catch (err) {
+                                console.error("Errore nel parsing asincrono:", err);
+                            }
+                        }
+
+                        // Se il deep load fallisce e non avevamo caricato nulla all'inizio, mostra un errore
+                        if (!fastVideosLoaded) {
+                            listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile connettersi a YouTube.</p>';
+                        }
+                    }, 100); // Esecuzione immediata subito dopo la prima pittura dello schermo
                 }
-                
-                // Fallback finale di sicurezza se la procedura principale fallisce completamente
-                await fetchFallbackClassicRSS(ucId, listContainer);
 
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
@@ -615,28 +675,6 @@
                     </div>
                 `;
                 listContainer.appendChild(card);
-            }
-        }
-
-        async function fetchFallbackClassicRSS(ucId, listContainer) {
-            try {
-                const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
-                const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
-                const data = await res.json();
-                if (data.status === 'ok' && data.items && data.items.length > 0) {
-                    const fallbackVideos = data.items.map(item => {
-                        let vId = item.link.includes('v=') ? item.link.split('v=')[1].split('&')[0] : item.link.split('/').pop();
-                        return {
-                            title: item.title,
-                            embedUrl: `https://www.youtube.com/embed/${vId}?autoplay=1&modestbranding=1&rel=0`
-                        };
-                    });
-                    renderVideoCards(fallbackVideos, listContainer);
-                } else {
-                    listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Impossibile caricare i video per questo canale.</p>';
-                }
-            } catch(e) {
-                listContainer.innerHTML = '<p style="padding:16px; text-align:center; color:var(--text-secondary);">Errore di connessione.</p>';
             }
         }
 
