@@ -508,9 +508,14 @@
             const listContainer = document.getElementById('videoList');
             const targetCount = Math.min(currentVisibleCount, loadedItems.length);
             
+            if(loadedItems.length === 0) {
+                listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Nessun podcast o video lungo (>20 min) trovato in questo canale.</p>';
+                return;
+            }
+
             for (let i = listContainer.children.length; i < targetCount; i++) {
                 const item = loadedItems[i];
-                if (displayedVideoUrls.has(item.embedUrl)) continue;
+                if (!item || displayedVideoUrls.has(item.embedUrl)) continue;
                 displayedVideoUrls.add(item.embedUrl);
 
                 const card = document.createElement('div');
@@ -521,7 +526,7 @@
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">Contenuto Recente</div>
+                        <div class="v-meta">Durata: ${item.durationText} • Podcast Longform</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -538,7 +543,7 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Recupero rapido feed...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Filtrazione e recupero video lunghi...</p>';
             
             loadedItems = [];
             currentVisibleCount = 10;
@@ -546,7 +551,6 @@
 
             if (channel.platform === 'youtube_channel') {
                 try {
-                    // Passaggio a corsproxy.io per performance nettamente superiori e istantanee
                     const targetUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`;
                     const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
                     const xmlText = await res.text();
@@ -556,17 +560,42 @@
                     const entries = xmlDoc.getElementsByTagName("entry");
 
                     if(entries.length === 0) {
-                        listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Nessun video trovato o feed vuoto.</p>';
+                        listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Canale vuoto.</p>';
                         return;
                     }
 
                     for (let i = 0; i < entries.length; i++) {
-                        const title = entries[i].getElementsByTagName("title")[0].textContent;
-                        const videoId = entries[i].getElementsByTagName("yt:videoId")[0].textContent;
-                        loadedItems.push({
-                            title: title,
-                            embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
-                        });
+                        const entry = entries[i];
+                        const title = entry.getElementsByTagName("title")[0].textContent;
+                        const videoId = entry.getElementsByTagName("yt:videoId")[0].textContent;
+                        
+                        // Sistema di estrazione e calcolo della durata per scartare gli shorts
+                        let seconds = 0;
+                        let durationText = "Lungo";
+                        const durationElements = entry.getElementsByTagName("media:duration");
+                        
+                        if(durationElements.length > 0) {
+                            seconds = parseInt(durationElements[0].textContent, 10) || 0;
+                            
+                            // Conversione in formato leggibile MM:SS o HH:MM:SS
+                            const hrs = Math.floor(seconds / 3600);
+                            const mins = Math.floor((seconds % 3600) / 60);
+                            if(hrs > 0) {
+                                durationText = `${hrs}h ${mins}m`;
+                            } else {
+                                durationText = `${mins} min`;
+                            }
+                        }
+
+                        // FILTRO: Escludi video inferiori a 20 minuti (1200 secondi)
+                        // Questo rimuove automaticamente il 100% degli Shorts (che durano max 60s) e i video brevi.
+                        if (seconds >= 1200) {
+                            loadedItems.push({
+                                title: title,
+                                durationText: durationText,
+                                embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`
+                            });
+                        }
                     }
                     
                     listContainer.innerHTML = '';
@@ -574,7 +603,7 @@
 
                 } catch (err) {
                     console.error(err);
-                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore di connessione al server proxy.</p>';
+                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore durante il caricamento selettivo dei video.</p>';
                 }
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
