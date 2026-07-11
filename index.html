@@ -437,7 +437,6 @@
             color: #ff4444;
         }
 
-        /* DIALOG POPUP ELEGANTE IN LINEA CON LO STILE */
         .custom-modal-overlay {
             position: fixed;
             top: 0;
@@ -563,8 +562,7 @@
     </div>
 
     <div id="customModalOverlay" class="custom-modal-overlay">
-        <div class="custom-modal" id="modalContentBlock">
-            </div>
+        <div class="custom-modal" id="modalContentBlock"></div>
     </div>
 
     <script>
@@ -618,7 +616,7 @@
             return clean;
         }
 
-        // Recupero automatico loghi via endpoint ad alta stabilità basato su ID Canale
+        // Sistema di rendering istantaneo privo di proxy esterni bloccabili
         function renderAppChannels() {
             const slider = document.getElementById('channelsSlider');
             slider.innerHTML = '';
@@ -626,6 +624,9 @@
                 slider.innerHTML = `<p style="font-size:13px; color:var(--text-secondary); padding:10px;">Nessun canale configurato.</p>`;
                 return;
             }
+
+            let savedAvatars = JSON.parse(localStorage.getItem('bixius_channel_avatars')) || {};
+
             channels.forEach(chan => {
                 const isTwitch = chan.platform === 'twitch';
                 const item = document.createElement('div');
@@ -633,18 +634,54 @@
                 item.id = `app-chan-${chan.id}`;
                 item.onclick = () => selectChannel(chan.id);
                 
-                let avatarHtml = '';
-                if (isTwitch) {
-                    avatarHtml = `<div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div>`;
-                } else {
-                    // Endpoint integrato per scaricare in tempo reale l'avatar nativo del canale YouTube
-                    avatarHtml = `<img src="https://cms.concept-dev.com/yt-avatar/?id=${chan.sourceId}" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\"avatar-placeholder\">${chan.name.charAt(0).toUpperCase()}</div>';" alt="${chan.name}">`;
+                const avatarCircle = document.createElement('div');
+                avatarCircle.className = 'avatar-circle';
+                
+                const placeholder = document.createElement('div');
+                placeholder.className = 'avatar-placeholder';
+                placeholder.innerText = chan.name.charAt(0).toUpperCase();
+                avatarCircle.appendChild(placeholder);
+
+                if (!isTwitch) {
+                    const img = document.createElement('img');
+                    
+                    // Se l'avatar è già memorizzato lo usiamo direttamente, altrimenti usiamo il redirect ufficiale di Google (Sbloccato da Firewall)
+                    if (savedAvatars[chan.sourceId]) {
+                        img.src = savedAvatars[chan.sourceId];
+                    } else {
+                        img.src = `https://www.google.com/s2/favicons?sz=128&domain=youtube.com/channel/${chan.sourceId}`;
+                    }
+                    
+                    img.alt = chan.name;
+                    img.style.position = 'absolute';
+                    img.style.top = '3px';
+                    img.style.left = '3px';
+                    img.style.width = 'calc(100% - 6px)';
+                    img.style.height = 'calc(100% - 6px)';
+                    img.style.opacity = savedAvatars[chan.sourceId] ? '1' : '0';
+                    img.style.transition = 'opacity 0.2s ease';
+
+                    img.onload = function() {
+                        img.style.opacity = '1';
+                        if(!savedAvatars[chan.sourceId]) {
+                            savedAvatars[chan.sourceId] = img.src;
+                            localStorage.setItem('bixius_channel_avatars', JSON.stringify(savedAvatars));
+                        }
+                    };
+                    
+                    img.onerror = function() {
+                        img.remove();
+                    };
+
+                    avatarCircle.appendChild(img);
                 }
 
-                item.innerHTML = `
-                    <div class="avatar-circle">${avatarHtml}</div>
-                    <span>${chan.name}</span>
-                `;
+                item.appendChild(avatarCircle);
+                
+                const span = document.createElement('span');
+                span.innerText = chan.name;
+                item.appendChild(span);
+                
                 slider.appendChild(item);
             });
         }
@@ -698,7 +735,6 @@
                 card.onclick = () => launchVideo(item.videoId, item.title);
                 card.style.animationDelay = `${(i % 10) * 30}ms`;
                 
-                // Rimosso completamente il testo inutile "Video Standard". Mostra solo la durata se valida.
                 let metaHtml = '';
                 if(item.durationText && item.durationText.trim() !== "") {
                     metaHtml = `<div class="v-meta">Durata: ${item.durationText}</div>`;
@@ -728,7 +764,6 @@
             const listContainer = document.getElementById('videoList');
             
             listContainer.innerHTML = `
-                <div class="skeleton-card"></div>
                 <div class="skeleton-card"></div>
                 <div class="skeleton-card"></div>
                 <div class="skeleton-card"></div>
@@ -768,7 +803,7 @@
                             durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
                         }
 
-                        // FILTRO ANTI-SHORTS AGGIORNATO (Taglia via a monte video sotto i 65 secondi o con flag)
+                        // Filtro anti-shorts a monte (Rigoroso sotto i 65s)
                         if ((seconds > 0 && seconds <= 65) || 
                             title.toLowerCase().includes('#shorts') || 
                             title.toLowerCase().includes('shorts')) {
@@ -939,7 +974,6 @@
             renderManageChannelsList();
         }
 
-        // RINOMINA IN LINEA ELEGANTE (Sostituisce il prompt del sistema)
         function startInlineRename(id) {
             const chan = channels.find(c => c.id === id);
             if (!chan) return;
@@ -972,7 +1006,6 @@
             renderManageChannelsList();
         }
 
-        // MODAL INTERNO ELEGANTE PER LA CANCELLAZIONE CHIRURGICA
         function openDeleteModal(id) {
             pendingActionTargetId = id;
             const chan = channels.find(c => c.id === id);
@@ -998,7 +1031,6 @@
             closeCustomModal();
         }
 
-        // MODAL PER AZIONI DI MANUTENZIONE DATI
         function openConfirmModal(type) {
             const content = document.getElementById('modalContentBlock');
             if (type === 'cache') {
