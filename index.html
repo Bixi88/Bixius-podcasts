@@ -96,7 +96,6 @@
 
         .container {
             max-width: 680px;
-            margin: 0 geometric auto;
             margin: 0 auto;
             padding: 0 16px;
         }
@@ -285,15 +284,35 @@
             background-color: var(--bg-surface);
             border-radius: var(--radius-card);
             cursor: pointer;
-            transition: background-color 0.2s, transform 0.2s;
+            transition: background-color 0.2s, transform 0.2s, opacity 0.3s;
             align-items: center;
             opacity: 0;
             transform: translateX(-12px);
             animation: materialFadeIn 0.5s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
+            border: 2px solid transparent;
         }
 
         .video-card:hover {
             background-color: var(--bg-surface-hover);
+        }
+
+        /* Highlight Video Attivo (YouTube) */
+        .video-card.active-yt {
+            border-color: var(--yt-red);
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.2);
+            background-color: var(--bg-surface-hover);
+        }
+
+        /* Highlight Video Attivo (Twitch) */
+        .video-card.active-twitch {
+            border-color: var(--twitch-purple);
+            box-shadow: 0 0 10px rgba(145, 70, 255, 0.2);
+            background-color: var(--bg-surface-hover);
+        }
+
+        /* Stato Video Completato: Solo elegantemente oscurato */
+        .video-card.completed {
+            opacity: 0.30 !important;
         }
 
         @keyframes materialFadeIn {
@@ -438,19 +457,18 @@
         let displayedVideoUrls = new Set();
         let loadedItems = [];
         let currentVisibleCount = 10;
+        let currentSelectedChannelType = 'youtube_channel';
         
         let ytPlayer = null;
         let timeTrackerInterval = null;
         let currentPlayingVideoId = null;
         let apiReady = false;
 
-        // Carica lo script di YouTube in modo asincrono controllato
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
         const firstScriptTag = document.getElementsByTagName('script')[0];
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-        // Questa funzione viene chiamata AUTOMATICAMENTE da Google quando l'API è attiva e pronta
         function onYouTubeIframeAPIReady() {
             apiReady = true;
             loadLastWatchedVideoOnInit();
@@ -519,20 +537,33 @@
             const listContainer = document.getElementById('videoList');
             const targetCount = Math.min(currentVisibleCount, loadedItems.length);
             
+            const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
+            
             for (let i = listContainer.children.length; i < targetCount; i++) {
                 const item = loadedItems[i];
                 if (!item || displayedVideoUrls.has(item.videoId)) continue;
                 displayedVideoUrls.add(item.videoId);
 
                 const card = document.createElement('div');
-                card.className = 'video-card';
+                card.id = `card-${item.videoId}`;
+                
+                const isCompleted = completedVideos.includes(item.videoId);
+                
+                let activeClass = '';
+                if (item.videoId === currentPlayingVideoId) {
+                    activeClass = currentSelectedChannelType === 'twitch' ? ' active-twitch' : ' active-yt';
+                }
+
+                card.className = `video-card${isCompleted ? ' completed' : ''}${activeClass}`;
                 card.onclick = () => launchVideo(item.videoId, item.title);
                 card.style.animationDelay = `${(i % 10) * 40}ms`;
                 
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">${item.durationText ? 'Durata: ' + item.durationText : 'Video Standard'}</div>
+                        <div class="v-meta">
+                            ${item.durationText ? 'Durata: ' + item.durationText : 'Video Standard'}
+                        </div>
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -545,11 +576,13 @@
             if(currentTab) currentTab.classList.add('active');
 
             const channel = channels.find(c => c.id === id);
+            currentSelectedChannelType = channel.platform;
+            
             document.getElementById('currentChannelTitle').innerText = `Contenuti di ${channel.name}`;
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Rimozione Shorts e caricamento feed...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Filtrazione ed eliminazione Shorts...</p>';
             
             loadedItems = [];
             currentVisibleCount = 10;
@@ -575,7 +608,6 @@
                         const title = entry.getElementsByTagName("title")[0].textContent;
                         const videoId = entry.getElementsByTagName("yt:videoId")[0].textContent;
                         
-                        // NUOVO FILTRO SICURO: Esclude basandosi sui secondi reali (Sotto i 90 secondi = Shorts)
                         let seconds = 0;
                         let durationText = "";
                         const durationElements = entry.getElementsByTagName("media:duration");
@@ -586,8 +618,9 @@
                             durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
                         }
 
-                        // Se dura meno di 90 secondi viene cancellato ed ignorato (Filtro Anti-Shorts matematico)
-                        if (seconds > 0 && seconds < 90) {
+                        if ((seconds > 0 && seconds < 90) || 
+                            title.toLowerCase().includes('#shorts') || 
+                            title.toLowerCase().includes('/shorts/')) {
                             continue; 
                         }
 
@@ -603,14 +636,33 @@
 
                 } catch (err) {
                     console.error(err);
-                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore di connessione.</p>';
+                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore caricamento feed.</p>';
                 }
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
                 const card = document.createElement('div');
-                card.className = 'video-card';
+                card.id = `card-${channel.sourceId}`;
+                
+                let activeClass = (channel.sourceId === currentPlayingVideoId) ? ' active-yt' : '';
+                card.className = `video-card${activeClass}`;
                 card.onclick = () => launchVideo(channel.sourceId, channel.name);
                 card.innerHTML = `<div class="info-area"><div class="v-title">Apri Risorsa: ${channel.name}</div><div class="v-meta">Contenuto Diretto</div></div>`;
+                listContainer.appendChild(card);
+            } else if (channel.platform === 'twitch') {
+                listContainer.innerHTML = '';
+                const card = document.createElement('div');
+                card.className = 'video-card';
+                card.onclick = () => {
+                    document.querySelectorAll('.video-card').forEach(c => c.classList.remove('active-yt', 'active-twitch'));
+                    card.classList.add('active-twitch');
+                    window.open(`https://www.twitch.tv/${channel.sourceId}/videos`, '_blank');
+                };
+                card.innerHTML = `
+                    <div class="info-area">
+                        <div class="v-title">Apri i Video e la Live di ${channel.name} su Twitch</div>
+                        <div class="v-meta">Piattaforma Esterna (Twitch)</div>
+                    </div>
+                `;
                 listContainer.appendChild(card);
             }
         }
@@ -626,31 +678,36 @@
         };
 
         function launchVideo(videoId, title, savedStartSeconds = 0) {
-            if(!apiReady) return; // Protezione per evitare blocchi se l'API non è ancora pronta
+            if(!apiReady) return;
             
             currentPlayingVideoId = videoId;
             
             localStorage.setItem('bixius_last_video_data', JSON.stringify({
                 videoId: videoId,
-                title: title
+                title: title,
+                platform: currentSelectedChannelType
             }));
 
             document.getElementById('marqueeText').innerHTML = `<p>NOW PLAYING: ${title.toUpperCase()}</p><p>NOW PLAYING: ${title.toUpperCase()}</p>`;
             
+            document.querySelectorAll('.video-card').forEach(c => c.classList.remove('active-yt', 'active-twitch'));
+            const selectedCard = document.getElementById(`card-${videoId}`);
+            if(selectedCard) {
+                selectedCard.classList.add(currentSelectedChannelType === 'twitch' ? 'active-twitch' : 'active-yt');
+            }
+
             let startAt = savedStartSeconds;
             if (startAt === 0) {
                 const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                 startAt = history[videoId] || 0;
             }
 
-            // Distruggiamo il player precedente se esisteva per evitare conflitti di tracciamento
             if(ytPlayer) {
                 try { ytPlayer.destroy(); } catch(e){}
             }
 
             document.getElementById('playerWrapper').innerHTML = `<div id="ytIframeContainer"></div>`;
 
-            // Creazione controllata del player con l'origine dinamica per i permessi di tracciamento
             ytPlayer = new YT.Player('ytIframeContainer', {
                 width: '100%',
                 height: '100%',
@@ -682,7 +739,7 @@
             stopTimeTracker();
             timeTrackerInterval = setInterval(() => {
                 saveCurrentTimestamp();
-            }, 2000); // Tracciamento ultra-preciso ogni 2 secondi
+            }, 2000);
         }
 
         function stopTimeTracker() {
@@ -697,10 +754,22 @@
                 const currentTime = Math.floor(ytPlayer.getCurrentTime());
                 const duration = Math.floor(ytPlayer.getDuration() || 0);
                 
-                if (duration > 0 && (duration - currentTime) < 20) {
+                if (duration > 0 && (duration - currentTime) < 40) {
                     const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                     delete history[currentPlayingVideoId];
                     localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
+                    
+                    const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
+                    if (!completedVideos.includes(currentPlayingVideoId)) {
+                        completedVideos.push(currentPlayingVideoId);
+                        localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
+                        
+                        // Si dissolve solo l'opacità all'istante in modo pulito
+                        const card = document.getElementById(`card-${currentPlayingVideoId}`);
+                        if(card) {
+                            card.classList.add('completed');
+                        }
+                    }
                     return;
                 }
 
@@ -715,11 +784,11 @@
         function loadLastWatchedVideoOnInit() {
             const lastVideoData = JSON.parse(localStorage.getItem('bixius_last_video_data'));
             if (lastVideoData && lastVideoData.videoId && apiReady) {
+                currentSelectedChannelType = lastVideoData.platform || 'youtube_channel';
                 const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                 const savedSeconds = history[lastVideoData.videoId] || 0;
                 launchVideo(lastVideoData.videoId, lastVideoData.title, savedSeconds);
             } else {
-                // Se non c'è nulla in memoria, mostra la grafica standard pulita
                 document.getElementById('playerWrapper').innerHTML = `
                     <div class="no-video-placeholder">
                         <i class="material-icons-round">play_arrow</i>
@@ -752,8 +821,11 @@
             if(confirm("Sei sicuro di voler cancellare tutti i canali salvati?")) {
                 channels = [];
                 localStorage.removeItem('bixius_user_channels');
+                localStorage.removeItem('bixius_video_timestamps');
+                localStorage.removeItem('bixius_last_video_data');
+                localStorage.removeItem('bixius_video_completati');
                 renderAppChannels();
-                document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutti i canali sono stati rimossi.</p>';
+                document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutti i canali e la cronologia sono stati rimossi.</p>';
                 toggleView();
             }
         }
