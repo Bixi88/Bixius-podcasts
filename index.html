@@ -18,7 +18,7 @@
 
     <style>
         :root {
-            --bg-main: #0f0f0f; /* Nero assoluto per schermi AMOLED */
+            --bg-main: #0f0f0f;
             --bg-surface: #161616;
             --bg-surface-hover: #212121;
             --text-main: #ffffff;
@@ -113,7 +113,7 @@
             margin-bottom: 24px;
             box-shadow: 0 12px 32px rgba(0,0,0,0.8);
             border-radius: var(--radius-player);
-            overflow: hidden; /* Taglia gli angoli dell'iframe interno */
+            overflow: hidden;
             background-color: #000;
         }
 
@@ -211,7 +211,7 @@
             width: 100%;
             height: 100%;
             border-radius: 50%;
-            background-color: #333;
+            background-color: #272727;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -265,7 +265,6 @@
             transform: translateX(-10px);
             animation: materialFadeIn 0.4s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
             border: 2px solid transparent;
-            /* Transizione fluida e rapida per l'accento visivo al click */
             transition: border-color 0.15s cubic-bezier(0.2, 0, 0, 1), 
                         box-shadow 0.15s cubic-bezier(0.2, 0, 0, 1), 
                         background-color 0.2s, opacity 0.3s;
@@ -275,21 +274,18 @@
             background-color: var(--bg-surface-hover);
         }
 
-        /* Highlight Fluido Video Attivo (YouTube) */
         .video-card.active-yt {
             border-color: var(--yt-red);
             box-shadow: 0 0 12px rgba(255, 0, 0, 0.15);
             background-color: var(--bg-surface-hover);
         }
 
-        /* Highlight Fluido Video Attivo (Twitch) */
         .video-card.active-twitch {
             border-color: var(--twitch-purple);
             box-shadow: 0 0 12px rgba(145, 70, 255, 0.15);
             background-color: var(--bg-surface-hover);
         }
 
-        /* Stato Video Completato: Elegantemente solo oscurato */
         .video-card.completed {
             opacity: 0.30 !important;
         }
@@ -298,7 +294,6 @@
             to { opacity: 1; transform: translateX(0); }
         }
 
-        /* SKELETON LOADING ANIMATION */
         .skeleton-card {
             height: 64px;
             background: linear-gradient(90deg, #161616 25%, #222 50%, #161616 75%);
@@ -392,7 +387,6 @@
         .btn-secondary { background-color: #272727; color: #fff; }
         .btn-danger { background-color: #4a0000; color: #ff8888; }
 
-        /* LISTA GESTIONE CANALI CHIRURGICA */
         .manage-channels-list {
             margin-top: 12px;
             display: flex;
@@ -408,12 +402,14 @@
             background-color: var(--bg-main);
             border: 1px solid #222;
             border-radius: 8px;
+            gap: 8px;
         }
 
         .manage-channel-info {
             display: flex;
             flex-direction: column;
             gap: 2px;
+            flex: 1;
         }
 
         .manage-channel-actions {
@@ -439,6 +435,58 @@
 
         .action-btn.del:hover {
             color: #ff4444;
+        }
+
+        /* DIALOG POPUP ELEGANTE IN LINEA CON LO STILE */
+        .custom-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.85);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            padding: 16px;
+        }
+
+        .custom-modal-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .custom-modal {
+            background-color: var(--bg-surface);
+            border: 1px solid #333;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 400px;
+            padding: 20px;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.9);
+            transform: translateY(20px);
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .custom-modal-overlay.open .custom-modal {
+            transform: translateY(0);
+        }
+
+        .custom-modal h3 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .custom-modal p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            line-height: 1.4;
         }
     </style>
 </head>
@@ -504,19 +552,23 @@
         <div class="settings-card">
             <h2 style="font-size:16px; margin-bottom:12px; font-weight:700;">Manutenzione Dati</h2>
             <div style="display:flex; flex-direction:column; gap:10px;">
-                <button class="btn btn-secondary" style="background-color:#222; text-align:left; justify-content:flex-start;" onclick="resetOnlyCache()">
+                <button class="btn btn-secondary" style="background-color:#222; text-align:left; justify-content:flex-start;" onclick="openConfirmModal('cache')">
                     <i class="material-icons-round" style="color:var(--text-secondary)">layers_clear</i> Svuota solo Cronologia e Video Visti
                 </button>
-                <button class="btn btn-danger" style="text-align:left; justify-content:flex-start;" onclick="clearAllChannels()">
+                <button class="btn btn-danger" style="text-align:left; justify-content:flex-start;" onclick="openConfirmModal('all')">
                     <i class="material-icons-round">delete_forever</i> Cancella Tutto (Canali + Memoria)
                 </button>
             </div>
         </div>
     </div>
 
+    <div id="customModalOverlay" class="custom-modal-overlay">
+        <div class="custom-modal" id="modalContentBlock">
+            </div>
+    </div>
+
     <script>
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
-        let channelAvatars = JSON.parse(localStorage.getItem('bixius_channel_avatars')) || {};
         let currentView = 'home';
         let displayedVideoUrls = new Set();
         let loadedItems = [];
@@ -527,6 +579,7 @@
         let timeTrackerInterval = null;
         let currentPlayingVideoId = null;
         let apiReady = false;
+        let pendingActionTargetId = null; 
 
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
@@ -565,7 +618,7 @@
             return clean;
         }
 
-        // Rendering con supporto immagini automatiche
+        // Recupero automatico loghi via endpoint ad alta stabilità basato su ID Canale
         function renderAppChannels() {
             const slider = document.getElementById('channelsSlider');
             slider.innerHTML = '';
@@ -580,14 +633,12 @@
                 item.id = `app-chan-${chan.id}`;
                 item.onclick = () => selectChannel(chan.id);
                 
-                // Fallback automatico se l'avatar non è ancora stato memorizzato dal feed
-                let avatarHtml = `<div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div>`;
-                if (channelAvatars[chan.sourceId]) {
-                    avatarHtml = `<img src="${channelAvatars[chan.sourceId]}" alt="${chan.name}">`;
-                } else if (isTwitch) {
-                    // Fallback statico elegante per Twitch se non caricato
-                    const twitchAvatar = `https://id.twitch.tv/static/user_picture.png`; 
-                    avatarHtml = `<img src="${twitchAvatar}" alt="${chan.name}">`;
+                let avatarHtml = '';
+                if (isTwitch) {
+                    avatarHtml = `<div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div>`;
+                } else {
+                    // Endpoint integrato per scaricare in tempo reale l'avatar nativo del canale YouTube
+                    avatarHtml = `<img src="https://cms.concept-dev.com/yt-avatar/?id=${chan.sourceId}" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\"avatar-placeholder\">${chan.name.charAt(0).toUpperCase()}</div>';" alt="${chan.name}">`;
                 }
 
                 item.innerHTML = `
@@ -598,7 +649,6 @@
             });
         }
 
-        // Renderizza chirurgicamente la lista canali dentro i Settings
         function renderManageChannelsList() {
             const list = document.getElementById('manageChannelsList');
             list.innerHTML = '';
@@ -610,14 +660,15 @@
                 const typeText = chan.platform === 'twitch' ? 'Twitch' : 'YouTube';
                 const div = document.createElement('div');
                 div.className = 'manage-channel-item';
+                div.id = `manage-item-${chan.id}`;
                 div.innerHTML = `
-                    <div class="manage-channel-info">
+                    <div class="manage-channel-info" id="info-block-${chan.id}">
                         <strong style="font-size:14px;">${chan.name}</strong>
                         <span style="font-size:11px; color:var(--text-secondary);">${typeText}: ${chan.sourceId}</span>
                     </div>
-                    <div class="manage-channel-actions">
-                        <button class="action-btn" onclick="renameChannel('${chan.id}')" title="Rinomina"><i class="material-icons-round" style="font-size:18px;">edit</i></button>
-                        <button class="action-btn del" onclick="deleteSingleChannel('${chan.id}')" title="Elimina"><i class="material-icons-round" style="font-size:18px;">delete</i></button>
+                    <div class="manage-channel-actions" id="actions-block-${chan.id}">
+                        <button class="action-btn" onclick="startInlineRename('${chan.id}')" title="Rinomina"><i class="material-icons-round" style="font-size:18px;">edit</i></button>
+                        <button class="action-btn del" onclick="openDeleteModal('${chan.id}')" title="Elimina"><i class="material-icons-round" style="font-size:18px;">delete</i></button>
                     </div>
                 `;
                 list.appendChild(div);
@@ -647,10 +698,16 @@
                 card.onclick = () => launchVideo(item.videoId, item.title);
                 card.style.animationDelay = `${(i % 10) * 30}ms`;
                 
+                // Rimosso completamente il testo inutile "Video Standard". Mostra solo la durata se valida.
+                let metaHtml = '';
+                if(item.durationText && item.durationText.trim() !== "") {
+                    metaHtml = `<div class="v-meta">Durata: ${item.durationText}</div>`;
+                }
+
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">${item.durationText ? 'Durata: ' + item.durationText : 'Video Standard'}</div>
+                        ${metaHtml}
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -670,7 +727,6 @@
 
             const listContainer = document.getElementById('videoList');
             
-            // SKELETON LOADING INVECE DEL TESTO SQUADRATO
             listContainer.innerHTML = `
                 <div class="skeleton-card"></div>
                 <div class="skeleton-card"></div>
@@ -690,21 +746,8 @@
                     
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-                    
-                    // RECUPERO AUTOMATICO LOGO DA FEED RSS YOUTUBE
-                    try {
-                        const authorNode = xmlDoc.getElementsByTagName("author")[0];
-                        if (authorNode) {
-                            const uriNode = authorNode.getElementsByTagName("uri")[0];
-                            if (uriNode && !channelAvatars[channel.sourceId]) {
-                                // Estrapola l'id per ricavare l'avatar ad alta risoluzione non distruttivo
-                                channelAvatars[channel.sourceId] = `https://img.youtube.com/vi/${xmlDoc.getElementsByTagName("yt:videoId")[0].textContent}/hqdefault.jpg`;
-                                // In alternativa usiamo un pattern standard di avatar o manteniamo l'iniziale se fallisce.
-                            }
-                        }
-                    } catch(e){}
-
                     const entries = xmlDoc.getElementsByTagName("entry");
+
                     if(entries.length === 0) {
                         listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Canale vuoto.</p>';
                         return;
@@ -725,10 +768,10 @@
                             durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
                         }
 
-                        // Filtro incrociato Anti-Shorts definitivo
-                        if ((seconds > 0 && seconds < 90) || 
+                        // FILTRO ANTI-SHORTS AGGIORNATO (Taglia via a monte video sotto i 65 secondi o con flag)
+                        if ((seconds > 0 && seconds <= 65) || 
                             title.toLowerCase().includes('#shorts') || 
-                            title.toLowerCase().includes('/shorts/')) {
+                            title.toLowerCase().includes('shorts')) {
                             continue; 
                         }
 
@@ -779,7 +822,6 @@
                 videoId: videoId, title: title, platform: currentSelectedChannelType
             }));
 
-            // Highlight fluido dell'elemento attivo
             document.querySelectorAll('.video-card').forEach(c => c.classList.remove('active-yt', 'active-twitch'));
             const selectedCard = document.getElementById(`card-${videoId}`);
             if(selectedCard) {
@@ -897,50 +939,111 @@
             renderManageChannelsList();
         }
 
-        // GESTIONE CHIRURGICA: RINOMINA
-        function renameChannel(id) {
+        // RINOMINA IN LINEA ELEGANTE (Sostituisce il prompt del sistema)
+        function startInlineRename(id) {
             const chan = channels.find(c => c.id === id);
             if (!chan) return;
-            const newName = prompt(`Modifica il nome per questo canale:`, chan.name);
-            if (newName && newName.trim() !== "") {
-                chan.name = newName.trim();
+
+            const infoBlock = document.getElementById(`info-block-${id}`);
+            const actionsBlock = document.getElementById(`actions-block-${id}`);
+
+            infoBlock.innerHTML = `
+                <input type="text" id="inline-input-${id}" class="form-control" value="${chan.name}" style="padding: 4px 8px; font-size: 13px;">
+            `;
+            actionsBlock.innerHTML = `
+                <button class="action-btn" onclick="saveInlineRename('${id}')" style="color:#00ff00;"><i class="material-icons-round">check</i></button>
+                <button class="action-btn" onclick="renderManageChannelsList()"><i class="material-icons-round">close</i></button>
+            `;
+            document.getElementById(`inline-input-${id}`).focus();
+        }
+
+        function saveInlineRename(id) {
+            const input = document.getElementById(`inline-input-${id}`);
+            if (!input) return;
+            const newName = input.value.trim();
+            if (newName !== "") {
+                const chan = channels.find(c => c.id === id);
+                if (chan) {
+                    chan.name = newName;
+                    localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                    renderAppChannels();
+                }
+            }
+            renderManageChannelsList();
+        }
+
+        // MODAL INTERNO ELEGANTE PER LA CANCELLAZIONE CHIRURGICA
+        function openDeleteModal(id) {
+            pendingActionTargetId = id;
+            const chan = channels.find(c => c.id === id);
+            const content = document.getElementById('modalContentBlock');
+            content.innerHTML = `
+                <h3>Elimina Canale</h3>
+                <p>Vuoi rimuovere chirurgicamente <strong>${chan ? chan.name : 'questo canale'}</strong> dalla tua lista?</p>
+                <div class="btn-row">
+                    <button class="btn btn-secondary" onclick="closeCustomModal()">Annulla</button>
+                    <button class="btn btn-primary" onclick="confirmDeleteSingleChannel()">Elimina</button>
+                </div>
+            `;
+            document.getElementById('customModalOverlay').classList.add('open');
+        }
+
+        function confirmDeleteSingleChannel() {
+            if (pendingActionTargetId) {
+                channels = channels.filter(c => c.id !== pendingActionTargetId);
                 localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
                 renderAppChannels();
                 renderManageChannelsList();
             }
+            closeCustomModal();
         }
 
-        // GESTIONE CHIRURGICA: ELIMINA ELEMENTO SINGOLO
-        function deleteSingleChannel(id) {
-            if (confirm("Vuoi eliminare chirurgicamente questo canale?")) {
-                channels = channels.filter(c => c.id !== id);
-                localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
-                renderAppChannels();
-                renderManageChannelsList();
+        // MODAL PER AZIONI DI MANUTENZIONE DATI
+        function openConfirmModal(type) {
+            const content = document.getElementById('modalContentBlock');
+            if (type === 'cache') {
+                content.innerHTML = `
+                    <h3>Azzera Cronologia</h3>
+                    <p>Sei sicuro di voler azzerare i video visti e le posizioni riproduzione? I tuoi canali rimarranno intatti.</p>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary" onclick="closeCustomModal()">Annulla</button>
+                        <button class="btn btn-primary" onclick="executeResetOnlyCache()">Azzera</button>
+                    </div>
+                `;
+            } else {
+                content.innerHTML = `
+                    <h3>Cancellazione Totale</h3>
+                    <p>Questa azione eliminerà definitivamente tutti i canali inseriti e l'intera cronologia dell'applicazione. Non potrai annullarla.</p>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary" onclick="closeCustomModal()">Annulla</button>
+                        <button class="btn btn-danger" onclick="executeClearAll()">Distruggi Database</button>
+                    </div>
+                `;
             }
+            document.getElementById('customModalOverlay').classList.add('open');
         }
 
-        // RESET ONLY CACHE (CRONOLOGIA E VIDEO VISTI)
-        function resetOnlyCache() {
-            if (confirm("Sei sicuro di voler azzerare i video visti e le posizioni dei video? I tuoi canali non verranno toccati.")) {
-                localStorage.removeItem('bixius_video_timestamps');
-                localStorage.removeItem('bixius_video_completati');
-                localStorage.removeItem('bixius_last_video_data');
-                alert("Cache delle durate svuotata con successo!");
-                window.location.reload();
-            }
+        function executeResetOnlyCache() {
+            localStorage.removeItem('bixius_video_timestamps');
+            localStorage.removeItem('bixius_video_completati');
+            localStorage.removeItem('bixius_last_video_data');
+            closeCustomModal();
+            window.location.reload();
         }
 
-        function clearAllChannels() {
-            if(confirm("Sei sicuro di voler distruggere l'intero database? Perderai tutti i canali e la cronologia.")) {
-                channels = [];
-                channelAvatars = {};
-                localStorage.clear();
-                renderAppChannels();
-                renderManageChannelsList();
-                document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutto cancellato.</p>';
-                toggleView();
-            }
+        function executeClearAll() {
+            channels = [];
+            localStorage.clear();
+            renderAppChannels();
+            renderManageChannelsList();
+            document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutto cancellato.</p>';
+            closeCustomModal();
+            toggleView();
+        }
+
+        function closeCustomModal() {
+            document.getElementById('customModalOverlay').classList.remove('open');
+            pendingActionTargetId = null;
         }
 
         function toggleView() {
@@ -953,7 +1056,7 @@
                 settings.classList.add('active');
                 icon.innerText = 'close';
                 currentView = 'settings';
-                renderManageChannelsList(); // Carica la lista chirurgica all'apertura
+                renderManageChannelsList(); 
             } else {
                 settings.classList.remove('active');
                 home.classList.add('active');
