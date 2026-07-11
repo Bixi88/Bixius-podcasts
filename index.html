@@ -18,9 +18,9 @@
 
     <style>
         :root {
-            --bg-main: #0f0f0f;
-            --bg-surface: #212121;
-            --bg-surface-hover: #272727;
+            --bg-main: #0f0f0f; /* Nero assoluto per schermi AMOLED */
+            --bg-surface: #161616;
+            --bg-surface-hover: #212121;
             --text-main: #ffffff;
             --text-secondary: #aaaaaa;
             --yt-red: #ff0000;
@@ -108,55 +108,13 @@
             display: block;
         }
 
-        .marquee-wrapper {
-            position: relative;
-            background-color: var(--bg-surface);
-            padding: 10px 0;
-            border-radius: var(--radius-player) var(--radius-player) 0 0;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            margin-top: 12px;
-        }
-
-        .marquee-wrapper::before, .marquee-wrapper::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            width: 40px;
-            height: 100%;
-            z-index: 2;
-            pointer-events: none;
-        }
-        .marquee-wrapper::before { left: 0; background: linear-gradient(to right, var(--bg-surface), transparent); }
-        .marquee-wrapper::after { right: 0; background: linear-gradient(to left, var(--bg-surface), transparent); }
-
-        .marquee-content {
-            display: flex;
-            white-space: nowrap;
-            gap: 60px;
-            animation: marquee-anim 20s linear infinite;
-        }
-
-        .marquee-content p {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-        }
-
-        @keyframes marquee-anim {
-            0% { transform: translateX(0%); }
-            100% { transform: translateX(-50%); }
-        }
-
         .player-section {
+            margin-top: 16px;
             margin-bottom: 24px;
-            box-shadow: 0 12px 32px rgba(0,0,0,0.7);
-            border-radius: 0 0 var(--radius-player) var(--radius-player);
-            overflow: hidden;
-            background-color: var(--bg-surface);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.8);
+            border-radius: var(--radius-player);
+            overflow: hidden; /* Taglia gli angoli dell'iframe interno */
+            background-color: #000;
         }
 
         .player-wrapper {
@@ -164,12 +122,15 @@
             aspect-ratio: 16 / 9;
             background: #000;
             position: relative;
+            border-radius: var(--radius-player);
+            overflow: hidden;
         }
 
         .player-wrapper iframe {
             width: 100%;
             height: 100%;
             border: none;
+            border-radius: var(--radius-player);
         }
 
         .no-video-placeholder {
@@ -195,6 +156,7 @@
             font-weight: 500;
             margin-bottom: 12px;
             padding-left: 4px;
+            color: var(--text-secondary);
         }
 
         .channels-slider {
@@ -216,7 +178,11 @@
             gap: 8px;
             cursor: pointer;
             flex-shrink: 0;
-            transition: transform 0.2s;
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .channel-item:active {
+            transform: scale(0.95);
         }
 
         .avatar-circle {
@@ -229,7 +195,16 @@
             justify-content: center;
             align-items: center;
             background: transparent;
-            transition: all 0.3s;
+            transition: background 0.25s ease;
+        }
+
+        .channel-item img {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid var(--bg-main);
+            background-color: var(--bg-surface);
         }
 
         .channel-item .avatar-placeholder {
@@ -247,11 +222,11 @@
         }
 
         .channel-item.active .avatar-circle {
-            background: linear-gradient(45deg, var(--yt-red), #ff6b6b);
+            background: linear-gradient(45deg, var(--yt-red), #ff5555);
         }
 
         .channel-item.twitch-type.active .avatar-circle {
-            background: linear-gradient(45deg, var(--twitch-purple), #a970ff);
+            background: linear-gradient(45deg, var(--twitch-purple), #b380ff);
         }
 
         .channel-item span {
@@ -263,6 +238,7 @@
             text-overflow: ellipsis;
             white-space: nowrap;
             color: var(--text-secondary);
+            transition: color 0.2s;
         }
 
         .channel-item.active span {
@@ -284,39 +260,56 @@
             background-color: var(--bg-surface);
             border-radius: var(--radius-card);
             cursor: pointer;
-            transition: background-color 0.2s, transform 0.2s, opacity 0.3s;
             align-items: center;
             opacity: 0;
-            transform: translateX(-12px);
-            animation: materialFadeIn 0.5s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
+            transform: translateX(-10px);
+            animation: materialFadeIn 0.4s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
             border: 2px solid transparent;
+            /* Transizione fluida e rapida per l'accento visivo al click */
+            transition: border-color 0.15s cubic-bezier(0.2, 0, 0, 1), 
+                        box-shadow 0.15s cubic-bezier(0.2, 0, 0, 1), 
+                        background-color 0.2s, opacity 0.3s;
         }
 
         .video-card:hover {
             background-color: var(--bg-surface-hover);
         }
 
-        /* Highlight Video Attivo (YouTube) */
+        /* Highlight Fluido Video Attivo (YouTube) */
         .video-card.active-yt {
             border-color: var(--yt-red);
-            box-shadow: 0 0 10px rgba(255, 0, 0, 0.2);
+            box-shadow: 0 0 12px rgba(255, 0, 0, 0.15);
             background-color: var(--bg-surface-hover);
         }
 
-        /* Highlight Video Attivo (Twitch) */
+        /* Highlight Fluido Video Attivo (Twitch) */
         .video-card.active-twitch {
             border-color: var(--twitch-purple);
-            box-shadow: 0 0 10px rgba(145, 70, 255, 0.2);
+            box-shadow: 0 0 12px rgba(145, 70, 255, 0.15);
             background-color: var(--bg-surface-hover);
         }
 
-        /* Stato Video Completato: Solo elegantemente oscurato */
+        /* Stato Video Completato: Elegantemente solo oscurato */
         .video-card.completed {
             opacity: 0.30 !important;
         }
 
         @keyframes materialFadeIn {
             to { opacity: 1; transform: translateX(0); }
+        }
+
+        /* SKELETON LOADING ANIMATION */
+        .skeleton-card {
+            height: 64px;
+            background: linear-gradient(90deg, #161616 25%, #222 50%, #161616 75%);
+            background-size: 200% 100%;
+            animation: skeletonLoading 1.4s infinite linear;
+            border-radius: var(--radius-card);
+        }
+
+        @keyframes skeletonLoading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
 
         .info-area {
@@ -343,6 +336,7 @@
             padding: 20px;
             border-radius: var(--radius-player);
             margin-top: 16px;
+            margin-bottom: 24px;
         }
 
         .form-group {
@@ -358,12 +352,18 @@
 
         .form-control {
             width: 100%;
-            background-color: #161616;
+            background-color: var(--bg-main);
             border: 1px solid #333;
             color: #fff;
             padding: 10px 12px;
             border-radius: 6px;
             font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-control:focus {
+            border-color: var(--text-secondary);
         }
 
         .btn-row {
@@ -379,10 +379,67 @@
             border-radius: 6px;
             font-weight: 700;
             cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 14px;
+            transition: filter 0.2s;
         }
 
+        .btn:active { filter: brightness(0.8); }
         .btn-primary { background-color: var(--yt-red); color: #fff; }
-        .btn-secondary { background-color: #333; color: #fff; }
+        .btn-secondary { background-color: #272727; color: #fff; }
+        .btn-danger { background-color: #4a0000; color: #ff8888; }
+
+        /* LISTA GESTIONE CANALI CHIRURGICA */
+        .manage-channels-list {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .manage-channel-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background-color: var(--bg-main);
+            border: 1px solid #222;
+            border-radius: 8px;
+        }
+
+        .manage-channel-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .manage-channel-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+        }
+
+        .action-btn:hover {
+            background-color: #222;
+            color: #fff;
+        }
+
+        .action-btn.del:hover {
+            color: #ff4444;
+        }
     </style>
 </head>
 <body>
@@ -398,13 +455,6 @@
     </div>
 
     <div id="homePanel" class="container view-panel active">
-        <div class="marquee-wrapper">
-            <div class="marquee-content" id="marqueeText">
-                <p>Nessun video in riproduzione</p>
-                <p>Nessun video in riproduzione</p>
-            </div>
-        </div>
-
         <div class="player-section">
             <div class="player-wrapper" id="playerWrapper">
                 <div id="ytIframeContainer"></div>
@@ -424,35 +474,49 @@
 
     <div id="settingsPanel" class="container view-panel">
         <div class="settings-card">
-            <h2 style="font-size:18px; margin-bottom:12px;">Gestione Canali</h2>
+            <h2 style="font-size:16px; margin-bottom:14px; font-weight:700;">Aggiungi Nuovo Canale</h2>
             <div class="form-group">
-                <label>Nome del Canale (Es. Pregianza)</label>
+                <label>Nome Personalizzato</label>
                 <input type="text" id="inputName" class="form-control" placeholder="Es. Pregianza">
             </div>
             <div class="form-group">
                 <label>Piattaforma</label>
                 <select id="inputPlatform" class="form-control" onchange="updatePlaceholder()">
-                    <option value="youtube_channel">YouTube (ID Canale UC...)</option>
-                    <option value="youtube_video">YouTube (ID Singolo Video o Playlist ID)</option>
-                    <option value="twitch">Twitch (Nome Utente Canale)</option>
+                    <option value="youtube_channel">YouTube Channel</option>
+                    <option value="twitch">Twitch</option>
                 </select>
             </div>
             <div class="form-group">
                 <label id="idLabel">ID Canale UC...</label>
                 <input type="text" id="inputId" class="form-control" placeholder="Incolla l'ID qui...">
             </div>
-            <div class="btn-row">
-                <button class="btn btn-secondary" onclick="toggleView()">Chiudi</button>
-                <button class="btn btn-primary" id="addBtn" onclick="addChannel()">Aggiungi Canale</button>
+            <button class="btn btn-primary" style="width:100%;" onclick="addChannel()">
+                <i class="material-icons-round" style="font-size:18px;">add</i>Aggiungi nella lista
+            </button>
+        </div>
+
+        <div class="settings-card">
+            <h2 style="font-size:16px; margin-bottom:4px; font-weight:700;">I Tuoi Canali Salvati</h2>
+            <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Rinomina o elimina chirurgicamente i singoli elementi.</p>
+            <div class="manage-channels-list" id="manageChannelsList"></div>
+        </div>
+
+        <div class="settings-card">
+            <h2 style="font-size:16px; margin-bottom:12px; font-weight:700;">Manutenzione Dati</h2>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <button class="btn btn-secondary" style="background-color:#222; text-align:left; justify-content:flex-start;" onclick="resetOnlyCache()">
+                    <i class="material-icons-round" style="color:var(--text-secondary)">layers_clear</i> Svuota solo Cronologia e Video Visti
+                </button>
+                <button class="btn btn-danger" style="text-align:left; justify-content:flex-start;" onclick="clearAllChannels()">
+                    <i class="material-icons-round">delete_forever</i> Cancella Tutto (Canali + Memoria)
+                </button>
             </div>
-            
-            <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin: 20px 0;">
-            <button class="btn btn-secondary" style="width:100%; background-color:#8b0000;" onclick="clearAllChannels()">Svuota Tutti i Canali</button>
         </div>
     </div>
 
     <script>
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
+        let channelAvatars = JSON.parse(localStorage.getItem('bixius_channel_avatars')) || {};
         let currentView = 'home';
         let displayedVideoUrls = new Set();
         let loadedItems = [];
@@ -479,14 +543,11 @@
             const label = document.getElementById('idLabel');
             const input = document.getElementById('inputId');
             if(platform === 'twitch') {
-                label.innerText = "Nome Utente Twitch (Es: pregianza)";
+                label.innerText = "Nome Utente Twitch";
                 input.placeholder = "pregianza";
-            } else if (platform === 'youtube_channel') {
-                label.innerText = "ID Canale YouTube UC... (Metti direttamente l'ID)";
-                input.placeholder = "UCxxxxxxxxxxxxxxxxx";
             } else {
-                label.innerText = "ID Video Singolo o ID Playlist (Es: PL...)";
-                input.placeholder = "Incolla l'ID...";
+                label.innerText = "ID Canale YouTube UC...";
+                input.placeholder = "UCxxxxxxxxxxxxxxxxx";
             }
         }
 
@@ -496,14 +557,6 @@
                 if (clean.includes('twitch.tv/')) {
                     clean = clean.split('twitch.tv/').pop().split('/')[0].split('?')[0];
                 }
-            } else if (platform === 'youtube_video') {
-                if (clean.includes('v=')) {
-                    clean = clean.split('v=')[1].split('&')[0];
-                } else if (clean.includes('youtu.be/')) {
-                    clean = clean.split('youtu.be/')[1].split('?')[0];
-                } else if (clean.includes('list=')) {
-                    clean = clean.split('list=')[1].split('&')[0];
-                }
             } else if (platform === 'youtube_channel') {
                 if (clean.includes('youtube.com/channel/')) {
                     clean = clean.split('youtube.com/channel/')[1].split('/')[0].split('?')[0];
@@ -512,6 +565,7 @@
             return clean;
         }
 
+        // Rendering con supporto immagini automatiche
         function renderAppChannels() {
             const slider = document.getElementById('channelsSlider');
             slider.innerHTML = '';
@@ -525,18 +579,54 @@
                 item.className = `channel-item ${isTwitch ? 'twitch-type' : ''}`;
                 item.id = `app-chan-${chan.id}`;
                 item.onclick = () => selectChannel(chan.id);
+                
+                // Fallback automatico se l'avatar non è ancora stato memorizzato dal feed
+                let avatarHtml = `<div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div>`;
+                if (channelAvatars[chan.sourceId]) {
+                    avatarHtml = `<img src="${channelAvatars[chan.sourceId]}" alt="${chan.name}">`;
+                } else if (isTwitch) {
+                    // Fallback statico elegante per Twitch se non caricato
+                    const twitchAvatar = `https://id.twitch.tv/static/user_picture.png`; 
+                    avatarHtml = `<img src="${twitchAvatar}" alt="${chan.name}">`;
+                }
+
                 item.innerHTML = `
-                    <div class="avatar-circle"><div class="avatar-placeholder">${chan.name.charAt(0).toUpperCase()}</div></div>
+                    <div class="avatar-circle">${avatarHtml}</div>
                     <span>${chan.name}</span>
                 `;
                 slider.appendChild(item);
             });
         }
 
+        // Renderizza chirurgicamente la lista canali dentro i Settings
+        function renderManageChannelsList() {
+            const list = document.getElementById('manageChannelsList');
+            list.innerHTML = '';
+            if (channels.length === 0) {
+                list.innerHTML = `<p style="font-size:13px; color:var(--text-secondary); padding:4px 0;">Nessun canale salvato.</p>`;
+                return;
+            }
+            channels.forEach(chan => {
+                const typeText = chan.platform === 'twitch' ? 'Twitch' : 'YouTube';
+                const div = document.createElement('div');
+                div.className = 'manage-channel-item';
+                div.innerHTML = `
+                    <div class="manage-channel-info">
+                        <strong style="font-size:14px;">${chan.name}</strong>
+                        <span style="font-size:11px; color:var(--text-secondary);">${typeText}: ${chan.sourceId}</span>
+                    </div>
+                    <div class="manage-channel-actions">
+                        <button class="action-btn" onclick="renameChannel('${chan.id}')" title="Rinomina"><i class="material-icons-round" style="font-size:18px;">edit</i></button>
+                        <button class="action-btn del" onclick="deleteSingleChannel('${chan.id}')" title="Elimina"><i class="material-icons-round" style="font-size:18px;">delete</i></button>
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
         function displayItems() {
             const listContainer = document.getElementById('videoList');
             const targetCount = Math.min(currentVisibleCount, loadedItems.length);
-            
             const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
             
             for (let i = listContainer.children.length; i < targetCount; i++) {
@@ -548,7 +638,6 @@
                 card.id = `card-${item.videoId}`;
                 
                 const isCompleted = completedVideos.includes(item.videoId);
-                
                 let activeClass = '';
                 if (item.videoId === currentPlayingVideoId) {
                     activeClass = currentSelectedChannelType === 'twitch' ? ' active-twitch' : ' active-yt';
@@ -556,14 +645,12 @@
 
                 card.className = `video-card${isCompleted ? ' completed' : ''}${activeClass}`;
                 card.onclick = () => launchVideo(item.videoId, item.title);
-                card.style.animationDelay = `${(i % 10) * 40}ms`;
+                card.style.animationDelay = `${(i % 10) * 30}ms`;
                 
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">
-                            ${item.durationText ? 'Durata: ' + item.durationText : 'Video Standard'}
-                        </div>
+                        <div class="v-meta">${item.durationText ? 'Durata: ' + item.durationText : 'Video Standard'}</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -582,7 +669,14 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Filtrazione ed eliminazione Shorts...</p>';
+            
+            // SKELETON LOADING INVECE DEL TESTO SQUADRATO
+            listContainer.innerHTML = `
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+            `;
             
             loadedItems = [];
             currentVisibleCount = 10;
@@ -596,8 +690,21 @@
                     
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-                    const entries = xmlDoc.getElementsByTagName("entry");
+                    
+                    // RECUPERO AUTOMATICO LOGO DA FEED RSS YOUTUBE
+                    try {
+                        const authorNode = xmlDoc.getElementsByTagName("author")[0];
+                        if (authorNode) {
+                            const uriNode = authorNode.getElementsByTagName("uri")[0];
+                            if (uriNode && !channelAvatars[channel.sourceId]) {
+                                // Estrapola l'id per ricavare l'avatar ad alta risoluzione non distruttivo
+                                channelAvatars[channel.sourceId] = `https://img.youtube.com/vi/${xmlDoc.getElementsByTagName("yt:videoId")[0].textContent}/hqdefault.jpg`;
+                                // In alternativa usiamo un pattern standard di avatar o manteniamo l'iniziale se fallisce.
+                            }
+                        }
+                    } catch(e){}
 
+                    const entries = xmlDoc.getElementsByTagName("entry");
                     if(entries.length === 0) {
                         listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Canale vuoto.</p>';
                         return;
@@ -618,17 +725,14 @@
                             durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
                         }
 
+                        // Filtro incrociato Anti-Shorts definitivo
                         if ((seconds > 0 && seconds < 90) || 
                             title.toLowerCase().includes('#shorts') || 
                             title.toLowerCase().includes('/shorts/')) {
                             continue; 
                         }
 
-                        loadedItems.push({
-                            title: title,
-                            videoId: videoId,
-                            durationText: durationText
-                        });
+                        loadedItems.push({ title: title, videoId: videoId, durationText: durationText });
                     }
                     
                     listContainer.innerHTML = '';
@@ -638,16 +742,6 @@
                     console.error(err);
                     listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore caricamento feed.</p>';
                 }
-            } else if (channel.platform === 'youtube_video') {
-                listContainer.innerHTML = '';
-                const card = document.createElement('div');
-                card.id = `card-${channel.sourceId}`;
-                
-                let activeClass = (channel.sourceId === currentPlayingVideoId) ? ' active-yt' : '';
-                card.className = `video-card${activeClass}`;
-                card.onclick = () => launchVideo(channel.sourceId, channel.name);
-                card.innerHTML = `<div class="info-area"><div class="v-title">Apri Risorsa: ${channel.name}</div><div class="v-meta">Contenuto Diretto</div></div>`;
-                listContainer.appendChild(card);
             } else if (channel.platform === 'twitch') {
                 listContainer.innerHTML = '';
                 const card = document.createElement('div');
@@ -659,8 +753,8 @@
                 };
                 card.innerHTML = `
                     <div class="info-area">
-                        <div class="v-title">Apri i Video e la Live di ${channel.name} su Twitch</div>
-                        <div class="v-meta">Piattaforma Esterna (Twitch)</div>
+                        <div class="v-title">Apri la sezione video e live di ${channel.name} su Twitch</div>
+                        <div class="v-meta">Collegamento Esterno</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -679,17 +773,13 @@
 
         function launchVideo(videoId, title, savedStartSeconds = 0) {
             if(!apiReady) return;
-            
             currentPlayingVideoId = videoId;
             
             localStorage.setItem('bixius_last_video_data', JSON.stringify({
-                videoId: videoId,
-                title: title,
-                platform: currentSelectedChannelType
+                videoId: videoId, title: title, platform: currentSelectedChannelType
             }));
 
-            document.getElementById('marqueeText').innerHTML = `<p>NOW PLAYING: ${title.toUpperCase()}</p><p>NOW PLAYING: ${title.toUpperCase()}</p>`;
-            
+            // Highlight fluido dell'elemento attivo
             document.querySelectorAll('.video-card').forEach(c => c.classList.remove('active-yt', 'active-twitch'));
             const selectedCard = document.getElementById(`card-${videoId}`);
             if(selectedCard) {
@@ -720,9 +810,7 @@
                     'playsinline': 1,
                     'origin': window.location.origin
                 },
-                events: {
-                    'onStateChange': onPlayerStateChange
-                }
+                events: { 'onStateChange': onPlayerStateChange }
             });
         }
 
@@ -737,16 +825,11 @@
 
         function startTimeTracker() {
             stopTimeTracker();
-            timeTrackerInterval = setInterval(() => {
-                saveCurrentTimestamp();
-            }, 2000);
+            timeTrackerInterval = setInterval(() => { saveCurrentTimestamp(); }, 2000);
         }
 
         function stopTimeTracker() {
-            if (timeTrackerInterval) {
-                clearInterval(timeTrackerInterval);
-                timeTrackerInterval = null;
-            }
+            if (timeTrackerInterval) { clearInterval(timeTrackerInterval); timeTrackerInterval = null; }
         }
 
         function saveCurrentTimestamp() {
@@ -764,11 +847,8 @@
                         completedVideos.push(currentPlayingVideoId);
                         localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
                         
-                        // Si dissolve solo l'opacità all'istante in modo pulito
                         const card = document.getElementById(`card-${currentPlayingVideoId}`);
-                        if(card) {
-                            card.classList.add('completed');
-                        }
+                        if(card) card.classList.add('completed');
                     }
                     return;
                 }
@@ -792,7 +872,7 @@
                 document.getElementById('playerWrapper').innerHTML = `
                     <div class="no-video-placeholder">
                         <i class="material-icons-round">play_arrow</i>
-                        <p>Scegli un canale, poi clicca su un contenuto in basso</p>
+                        <p>Seleziona un canale per visualizzare e riprodurre i video</p>
                     </div>`;
             }
         }
@@ -814,18 +894,51 @@
             document.getElementById('inputId').value = '';
             
             renderAppChannels();
-            toggleView();
+            renderManageChannelsList();
+        }
+
+        // GESTIONE CHIRURGICA: RINOMINA
+        function renameChannel(id) {
+            const chan = channels.find(c => c.id === id);
+            if (!chan) return;
+            const newName = prompt(`Modifica il nome per questo canale:`, chan.name);
+            if (newName && newName.trim() !== "") {
+                chan.name = newName.trim();
+                localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                renderAppChannels();
+                renderManageChannelsList();
+            }
+        }
+
+        // GESTIONE CHIRURGICA: ELIMINA ELEMENTO SINGOLO
+        function deleteSingleChannel(id) {
+            if (confirm("Vuoi eliminare chirurgicamente questo canale?")) {
+                channels = channels.filter(c => c.id !== id);
+                localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                renderAppChannels();
+                renderManageChannelsList();
+            }
+        }
+
+        // RESET ONLY CACHE (CRONOLOGIA E VIDEO VISTI)
+        function resetOnlyCache() {
+            if (confirm("Sei sicuro di voler azzerare i video visti e le posizioni dei video? I tuoi canali non verranno toccati.")) {
+                localStorage.removeItem('bixius_video_timestamps');
+                localStorage.removeItem('bixius_video_completati');
+                localStorage.removeItem('bixius_last_video_data');
+                alert("Cache delle durate svuotata con successo!");
+                window.location.reload();
+            }
         }
 
         function clearAllChannels() {
-            if(confirm("Sei sicuro di voler cancellare tutti i canali salvati?")) {
+            if(confirm("Sei sicuro di voler distruggere l'intero database? Perderai tutti i canali e la cronologia.")) {
                 channels = [];
-                localStorage.removeItem('bixius_user_channels');
-                localStorage.removeItem('bixius_video_timestamps');
-                localStorage.removeItem('bixius_last_video_data');
-                localStorage.removeItem('bixius_video_completati');
+                channelAvatars = {};
+                localStorage.clear();
                 renderAppChannels();
-                document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutti i canali e la cronologia sono stati rimossi.</p>';
+                renderManageChannelsList();
+                document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutto cancellato.</p>';
                 toggleView();
             }
         }
@@ -840,6 +953,7 @@
                 settings.classList.add('active');
                 icon.innerText = 'close';
                 currentView = 'settings';
+                renderManageChannelsList(); // Carica la lista chirurgica all'apertura
             } else {
                 settings.classList.remove('active');
                 home.classList.add('active');
@@ -854,14 +968,10 @@
 
         window.onload = function() {
             renderAppChannels();
-            if(apiReady) {
-                loadLastWatchedVideoOnInit();
-            }
+            if(apiReady) { loadLastWatchedVideoOnInit(); }
         };
 
-        window.onbeforeunload = function() {
-            saveCurrentTimestamp();
-        };
+        window.onbeforeunload = function() { saveCurrentTimestamp(); };
     </script>
 </body>
 </html>
