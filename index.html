@@ -597,7 +597,7 @@
         // Non richiede alcuna chiave/registrazione da parte nostra: e' lo stesso Client-ID
         // che il player web di Twitch invia da browser, quindi funziona interamente client-side.
         const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-        const TWITCH_VOD_QUERY_HASH = 'a937f1d22e269e39a03b509f65a7490f9fc247d7f83d6ac1421523e3b68042cb';
+        const TWITCH_VOD_QUERY_HASH = '67004f7881e65c297936f32c75246470629557a393788fb5a69d6d9a25a8fd5f';
 
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
@@ -797,10 +797,23 @@
                 body: JSON.stringify(requestBody)
             });
 
-            if (!res.ok) throw new Error('Richiesta a Twitch fallita');
+            if (!res.ok) throw new Error(`Richiesta HTTP a Twitch fallita (status ${res.status})`);
 
             const json = await res.json();
-            const edges = json?.[0]?.data?.user?.videos?.edges || [];
+            console.log('[Twitch GQL] risposta grezza per', username, ':', json);
+
+            const payload = Array.isArray(json) ? json[0] : json;
+            if (!payload) throw new Error('Risposta Twitch vuota o in formato inatteso.');
+            if (payload.errors) {
+                const isStaleQuery = payload.errors.some(e => e.message === 'PersistedQueryNotFound');
+                if (isStaleQuery) {
+                    throw new Error('Twitch ha aggiornato la query interna (succede di tanto in tanto): serve un nuovo hash lato codice.');
+                }
+                throw new Error('Twitch ha risposto con un errore GraphQL: ' + JSON.stringify(payload.errors));
+            }
+            if (!payload.data || !payload.data.user) throw new Error(`Utente Twitch "${username}" non trovato (controlla che il nome utente sia corretto).`);
+
+            const edges = payload.data.user.videos?.edges || [];
             let videos = edges.map(edge => edge.node).filter(Boolean);
 
             if (titleFilter && titleFilter.trim() !== '') {
@@ -811,7 +824,7 @@
             return videos;
         }
 
-        function renderTwitchFallback(listContainer, username) {
+        function renderTwitchFallback(listContainer, username, debugMessage) {
             listContainer.innerHTML = `
                 <div class="video-card" onclick="window.open('https://www.twitch.tv/${username}/videos?filter=archives&sort=time', '_blank')">
                     <div class="info-area">
@@ -819,6 +832,7 @@
                         <div class="v-meta">Apri l'archivio ufficiale delle dirette registrate</div>
                     </div>
                 </div>
+                ${debugMessage ? `<p style="padding:10px 4px; font-size:11px; color:var(--text-secondary); opacity:0.7;">Motivo: ${debugMessage}</p>` : ''}
             `;
         }
 
@@ -927,8 +941,8 @@
                     const videos = await fetchTwitchVideos(username, channel.titleFilter);
                     renderTwitchVideos(listContainer, videos, channel.titleFilter);
                 } catch (err) {
-                    console.error(err);
-                    renderTwitchFallback(listContainer, username);
+                    console.error('[Twitch] errore nel recupero VOD:', err);
+                    renderTwitchFallback(listContainer, username, err.message);
                 }
             }
         }
