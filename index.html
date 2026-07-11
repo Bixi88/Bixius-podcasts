@@ -16,8 +16,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=YouTube+Sans:wght@700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
 
-    <script src="https://www.youtube.com/iframe_api"></script>
-
     <style>
         :root {
             --bg-main: #0f0f0f;
@@ -98,6 +96,7 @@
 
         .container {
             max-width: 680px;
+            margin: 0 geometric auto;
             margin: 0 auto;
             padding: 0 16px;
         }
@@ -288,7 +287,6 @@
             cursor: pointer;
             transition: background-color 0.2s, transform 0.2s;
             align-items: center;
-            
             opacity: 0;
             transform: translateX(-12px);
             animation: materialFadeIn 0.5s cubic-bezier(0.21, 0.94, 0.33, 1) forwards;
@@ -299,10 +297,7 @@
         }
 
         @keyframes materialFadeIn {
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
+            to { opacity: 1; transform: translateX(0); }
         }
 
         .info-area {
@@ -386,17 +381,14 @@
     <div id="homePanel" class="container view-panel active">
         <div class="marquee-wrapper">
             <div class="marquee-content" id="marqueeText">
-                <p>Seleziona un canale o riprendi l'ultimo video in memoria</p>
-                <p>Seleziona un canale o riprendi l'ultimo video in memoria</p>
+                <p>Nessun video in riproduzione</p>
+                <p>Nessun video in riproduzione</p>
             </div>
         </div>
 
         <div class="player-section">
             <div class="player-wrapper" id="playerWrapper">
-                <div class="no-video-placeholder">
-                    <i class="material-icons-round">play_arrow</i>
-                    <p>Scegli un canale, poi clicca su un contenuto in basso</p>
-                </div>
+                <div id="ytIframeContainer"></div>
             </div>
         </div>
 
@@ -447,10 +439,22 @@
         let loadedItems = [];
         let currentVisibleCount = 10;
         
-        // Variabili Globali del Player YouTube per il Minutaggio
         let ytPlayer = null;
         let timeTrackerInterval = null;
         let currentPlayingVideoId = null;
+        let apiReady = false;
+
+        // Carica lo script di YouTube in modo asincrono controllato
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        // Questa funzione viene chiamata AUTOMATICAMENTE da Google quando l'API è attiva e pronta
+        function onYouTubeIframeAPIReady() {
+            apiReady = true;
+            loadLastWatchedVideoOnInit();
+        }
 
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
@@ -515,11 +519,6 @@
             const listContainer = document.getElementById('videoList');
             const targetCount = Math.min(currentVisibleCount, loadedItems.length);
             
-            if(loadedItems.length === 0) {
-                listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Nessun contenuto standard trovato in questo canale.</p>';
-                return;
-            }
-
             for (let i = listContainer.children.length; i < targetCount; i++) {
                 const item = loadedItems[i];
                 if (!item || displayedVideoUrls.has(item.videoId)) continue;
@@ -533,7 +532,7 @@
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
-                        <div class="v-meta">Video Orizzontale Standard</div>
+                        <div class="v-meta">${item.durationText ? 'Durata: ' + item.durationText : 'Video Standard'}</div>
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -550,7 +549,7 @@
             document.getElementById('currentChannelTitle').style.display = 'block';
 
             const listContainer = document.getElementById('videoList');
-            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Filtrazione ed eliminazione Shorts in corso...</p>';
+            listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Rimozione Shorts e caricamento feed...</p>';
             
             loadedItems = [];
             currentVisibleCount = 10;
@@ -576,18 +575,26 @@
                         const title = entry.getElementsByTagName("title")[0].textContent;
                         const videoId = entry.getElementsByTagName("yt:videoId")[0].textContent;
                         
-                        // SOLUZIONE STRUTTURALE: I video che contengono nel titolo hashtag legati agli shorts o hanno tag specifici vengono scartati subito.
-                        // In aggiunta, gli shorts di default non hanno descrizioni espanse standard o tag lunghi nei feed RSS.
-                        const descriptionElements = entry.getElementsByTagName("media:description");
-                        const descText = descriptionElements.length > 0 ? descriptionElements[0].textContent.toLowerCase() : "";
+                        // NUOVO FILTRO SICURO: Esclude basandosi sui secondi reali (Sotto i 90 secondi = Shorts)
+                        let seconds = 0;
+                        let durationText = "";
+                        const durationElements = entry.getElementsByTagName("media:duration");
                         
-                        if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('#short') || descText.includes('#shorts')) {
-                            continue; // Salta l'elemento perché è sicuramente uno Short.
+                        if(durationElements.length > 0) {
+                            seconds = parseInt(durationElements[0].textContent, 10) || 0;
+                            const mins = Math.floor(seconds / 60);
+                            durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
+                        }
+
+                        // Se dura meno di 90 secondi viene cancellato ed ignorato (Filtro Anti-Shorts matematico)
+                        if (seconds > 0 && seconds < 90) {
+                            continue; 
                         }
 
                         loadedItems.push({
                             title: title,
-                            videoId: videoId
+                            videoId: videoId,
+                            durationText: durationText
                         });
                     }
                     
@@ -596,7 +603,7 @@
 
                 } catch (err) {
                     console.error(err);
-                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore durante il caricamento selettivo dei video.</p>';
+                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore di connessione.</p>';
                 }
             } else if (channel.platform === 'youtube_video') {
                 listContainer.innerHTML = '';
@@ -604,18 +611,6 @@
                 card.className = 'video-card';
                 card.onclick = () => launchVideo(channel.sourceId, channel.name);
                 card.innerHTML = `<div class="info-area"><div class="v-title">Apri Risorsa: ${channel.name}</div><div class="v-meta">Contenuto Diretto</div></div>`;
-                listContainer.appendChild(card);
-            } else if (channel.platform === 'twitch') {
-                listContainer.innerHTML = '';
-                const card = document.createElement('div');
-                card.className = 'video-card';
-                card.onclick = () => window.open(`https://www.twitch.tv/${channel.sourceId}/videos`, '_blank');
-                card.innerHTML = `
-                    <div class="info-area">
-                        <div class="v-title">Apri i Video e la Live di ${channel.name} su Twitch</div>
-                        <div class="v-meta">Piattaforma Esterna</div>
-                    </div>
-                `;
                 listContainer.appendChild(card);
             }
         }
@@ -630,11 +625,11 @@
             }
         };
 
-        // Funzione per agganciare o creare il Player di YouTube e caricare il minutaggio salvato
         function launchVideo(videoId, title, savedStartSeconds = 0) {
+            if(!apiReady) return; // Protezione per evitare blocchi se l'API non è ancora pronta
+            
             currentPlayingVideoId = videoId;
             
-            // Salviamo questo video come "L'ultimo visto in assoluto" per riproporlo all'apertura dell'app
             localStorage.setItem('bixius_last_video_data', JSON.stringify({
                 videoId: videoId,
                 title: title
@@ -642,19 +637,20 @@
 
             document.getElementById('marqueeText').innerHTML = `<p>NOW PLAYING: ${title.toUpperCase()}</p><p>NOW PLAYING: ${title.toUpperCase()}</p>`;
             
-            // Se i secondi di partenza non sono passati forzatamente, cerchiamo se c'è una cronologia passata per questo specifico video
             let startAt = savedStartSeconds;
             if (startAt === 0) {
                 const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                 startAt = history[videoId] || 0;
             }
 
-            const wrapper = document.getElementById('playerWrapper');
-            
-            // Puliamo il wrapper e iniettiamo il div contenitore per l'API di YouTube
-            wrapper.innerHTML = `<div id="ytIframeContainer"></div>`;
+            // Distruggiamo il player precedente se esisteva per evitare conflitti di tracciamento
+            if(ytPlayer) {
+                try { ytPlayer.destroy(); } catch(e){}
+            }
 
-            // Creiamo l'oggetto Player ufficiale con le API JavaScript di Google
+            document.getElementById('playerWrapper').innerHTML = `<div id="ytIframeContainer"></div>`;
+
+            // Creazione controllata del player con l'origine dinamica per i permessi di tracciamento
             ytPlayer = new YT.Player('ytIframeContainer', {
                 width: '100%',
                 height: '100%',
@@ -664,7 +660,8 @@
                     'start': startAt,
                     'modestbranding': 1,
                     'rel': 0,
-                    'playsinline': 1
+                    'playsinline': 1,
+                    'origin': window.location.origin
                 },
                 events: {
                     'onStateChange': onPlayerStateChange
@@ -672,14 +669,12 @@
             });
         }
 
-        // Monitora i cambi di stato (Play/Pausa/Stop) per tracciare il tempo
         function onPlayerStateChange(event) {
-            // Se il video è in riproduzione (Stato = 1)
             if (event.data == YT.PlayerState.PLAYING) {
                 startTimeTracker();
             } else {
                 stopTimeTracker();
-                saveCurrentTimestamp(); // Salva istantaneamente in caso di pausa o chiusura parziale
+                saveCurrentTimestamp();
             }
         }
 
@@ -687,7 +682,7 @@
             stopTimeTracker();
             timeTrackerInterval = setInterval(() => {
                 saveCurrentTimestamp();
-            }, 4000); // Salva la posizione esatta in memoria ogni 4 secondi automaticamente
+            }, 2000); // Tracciamento ultra-preciso ogni 2 secondi
         }
 
         function stopTimeTracker() {
@@ -702,15 +697,14 @@
                 const currentTime = Math.floor(ytPlayer.getCurrentTime());
                 const duration = Math.floor(ytPlayer.getDuration() || 0);
                 
-                // Evitiamo di salvare se il video è praticamente finito (mancano meno di 15 secondi alla fine)
-                if (duration > 0 && (duration - currentTime) < 15) {
+                if (duration > 0 && (duration - currentTime) < 20) {
                     const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                     delete history[currentPlayingVideoId];
                     localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
                     return;
                 }
 
-                if (currentTime > 5) { // Inizia a salvare dopo i primi 5 secondi
+                if (currentTime > 2) {
                     const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                     history[currentPlayingVideoId] = currentTime;
                     localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
@@ -718,17 +712,19 @@
             }
         }
 
-        // Funzione eseguita all'avvio: Recupera l'ultimo video in generale e lo rimette in alto
         function loadLastWatchedVideoOnInit() {
             const lastVideoData = JSON.parse(localStorage.getItem('bixius_last_video_data'));
-            if (lastVideoData && lastVideoData.videoId) {
+            if (lastVideoData && lastVideoData.videoId && apiReady) {
                 const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                 const savedSeconds = history[lastVideoData.videoId] || 0;
-                
-                // Ritarda leggermente il caricamento per assicurarsi che le API di YouTube siano pronte nel browser
-                setTimeout(() => {
-                    launchVideo(lastVideoData.videoId, lastVideoData.title, savedSeconds);
-                }, 800);
+                launchVideo(lastVideoData.videoId, lastVideoData.title, savedSeconds);
+            } else {
+                // Se non c'è nulla in memoria, mostra la grafica standard pulita
+                document.getElementById('playerWrapper').innerHTML = `
+                    <div class="no-video-placeholder">
+                        <i class="material-icons-round">play_arrow</i>
+                        <p>Scegli un canale, poi clicca su un contenuto in basso</p>
+                    </div>`;
             }
         }
 
@@ -784,13 +780,13 @@
             navigator.serviceWorker.register('./sw.js').catch(err => console.log("SW Error:", err));
         }
 
-        // Gestione degli eventi di caricamento finestra
         window.onload = function() {
             renderAppChannels();
-            loadLastWatchedVideoOnInit();
+            if(apiReady) {
+                loadLastWatchedVideoOnInit();
+            }
         };
 
-        // Salva la posizione corrente anche se l'utente chiude bruscamente la scheda o l'app del telefono
         window.onbeforeunload = function() {
             saveCurrentTimestamp();
         };
