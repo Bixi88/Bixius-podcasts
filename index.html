@@ -284,6 +284,12 @@
             background-color: var(--bg-surface-hover);
         }
 
+        .video-card.active-twitch {
+            border-color: var(--twitch-purple);
+            box-shadow: 0 0 12px rgba(145, 70, 255, 0.15);
+            background-color: var(--bg-surface-hover);
+        }
+
         .video-card.completed {
             opacity: 0.30 !important;
         }
@@ -322,21 +328,6 @@
         .v-meta {
             font-size: 11px;
             color: var(--text-secondary);
-        }
-
-        .twitch-embed-container {
-            width: 100%;
-            height: 480px;
-            border-radius: var(--radius-card);
-            overflow: hidden;
-            border: 2px solid var(--twitch-purple);
-            background-color: #000;
-        }
-
-        .twitch-embed-container iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
         }
 
         .settings-card {
@@ -828,22 +819,12 @@
                 }
             } else if (channel.platform === 'twitch') {
                 const username = channel.sourceId.toLowerCase();
-                const parentDomain = window.location.hostname || "localhost";
-                
                 listContainer.innerHTML = `
-                    <div style="margin-bottom: 12px; font-size:13px; color:var(--text-secondary); background:#212121; padding:12px; border-radius:8px;">
-                        📌 <strong>Nota per Barba e Baffi:</strong> Scorri l'elenco ufficiale qui sotto e seleziona la live registrata desiderata. Puoi anche usare il pulsante rapido per aprire la vista intera.
-                    </div>
-                    <div class="btn-row" style="margin-bottom: 14px;">
-                        <button class="btn btn-secondary" style="background:#9146ff; color:#fff;" onclick="window.open('https://www.twitch.tv/${username}/videos?filter=archives&sort=time', '_blank')">
-                            <i class="material-icons-round">open_in_new</i> Apri Archivio VOD su Twitch
-                        </button>
-                    </div>
-                    <div class="twitch-embed-container">
-                        <iframe 
-                            src="https://player.twitch.tv/?channel=${username}&parent=${parentDomain}&autoplay=false&muted=true" 
-                            allowfullscreen="true">
-                        </iframe>
+                    <div class="video-card" onclick="window.open('https://www.twitch.tv/${username}/videos?filter=archives&sort=time', '_blank')">
+                        <div class="info-area">
+                            <div class="v-title" style="font-weight: 700;">Trasmissioni Recenti</div>
+                            <div class="v-meta">Apri l'archivio ufficiale delle dirette registrate</div>
+                        </div>
                     </div>
                 `;
             }
