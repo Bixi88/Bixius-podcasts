@@ -541,6 +541,13 @@
                 <label id="idLabel">ID Canale UC...</label>
                 <input type="text" id="inputId" class="form-control" placeholder="Incolla l'ID qui...">
             </div>
+            <div class="form-group" id="twitchFilterGroup" style="display:none;">
+                <label>Filtro Titolo Rubrica (opzionale)</label>
+                <input type="text" id="inputTwitchFilter" class="form-control" placeholder="Es. Barba e Baffi">
+                <p style="font-size:11px; color:var(--text-secondary); margin-top:6px;">
+                    Se compilato, in app verranno mostrate solo le VOD Twitch il cui titolo contiene questo testo.
+                </p>
+            </div>
             <button class="btn btn-primary" style="width:100%;" onclick="addChannel()">
                 <i class="material-icons-round" style="font-size:18px;">add</i>Aggiungi nella lista
             </button>
@@ -570,6 +577,9 @@
     </div>
 
     <script>
+        // ---------------------------------------------------------------
+        // STATO GLOBALE
+        // ---------------------------------------------------------------
         let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
         let currentView = 'home';
         let displayedVideoUrls = new Set();
@@ -582,6 +592,12 @@
         let currentPlayingVideoId = null;
         let apiReady = false;
         let pendingActionTargetId = null; 
+
+        // Endpoint pubblico usato dal sito twitch.tv stesso per interrogare le VOD di un canale.
+        // Non richiede alcuna chiave/registrazione da parte nostra: e' lo stesso Client-ID
+        // che il player web di Twitch invia da browser, quindi funziona interamente client-side.
+        const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+        const TWITCH_VOD_QUERY_HASH = 'a937f1d22e269e39a03b509f65a7490f9fc247d7f83d6ac1421523e3b68042cb';
 
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
@@ -597,12 +613,15 @@
             const platform = document.getElementById('inputPlatform').value;
             const label = document.getElementById('idLabel');
             const input = document.getElementById('inputId');
+            const filterGroup = document.getElementById('twitchFilterGroup');
             if(platform === 'twitch') {
                 label.innerText = "Nome Utente Twitch";
                 input.placeholder = "ilpregianza";
+                filterGroup.style.display = 'block';
             } else {
                 label.innerText = "ID Canale YouTube UC...";
                 input.placeholder = "UCxxxxxxxxxxxxxxxxx";
+                filterGroup.style.display = 'none';
             }
         }
 
@@ -693,13 +712,14 @@
             }
             channels.forEach(chan => {
                 const typeText = chan.platform === 'twitch' ? 'Twitch' : 'YouTube';
+                const filterText = chan.titleFilter ? ` · Filtro: "${chan.titleFilter}"` : '';
                 const div = document.createElement('div');
                 div.className = 'manage-channel-item';
                 div.id = `manage-item-${chan.id}`;
                 div.innerHTML = `
                     <div class="manage-channel-info" id="info-block-${chan.id}">
                         <strong style="font-size:14px;">${chan.name}</strong>
-                        <span style="font-size:11px; color:var(--text-secondary);">${typeText}: ${chan.sourceId}</span>
+                        <span style="font-size:11px; color:var(--text-secondary);">${typeText}: ${chan.sourceId}${filterText}</span>
                     </div>
                     <div class="manage-channel-actions" id="actions-block-${chan.id}">
                         <button class="action-btn" onclick="startInlineRename('${chan.id}')" title="Rinomina"><i class="material-icons-round" style="font-size:18px;">edit</i></button>
@@ -748,6 +768,90 @@
                 `;
                 listContainer.appendChild(card);
             }
+        }
+
+        // ---------------------------------------------------------------
+        // TWITCH: recupero VOD del canale senza bisogno di API key esterne
+        // ---------------------------------------------------------------
+        async function fetchTwitchVideos(username, titleFilter) {
+            const requestBody = [{
+                operationName: 'FilterableVideoTower_Videos',
+                variables: {
+                    channelOwnerLogin: username,
+                    broadcastType: null, // null = tutte le VOD (dirette, highlight, upload)
+                    videoSort: 'TIME',
+                    limit: 30,
+                    cursor: null
+                },
+                extensions: {
+                    persistedQuery: { version: 1, sha256Hash: TWITCH_VOD_QUERY_HASH }
+                }
+            }];
+
+            const res = await fetch('https://gql.twitch.tv/gql', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Client-ID': TWITCH_CLIENT_ID
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!res.ok) throw new Error('Richiesta a Twitch fallita');
+
+            const json = await res.json();
+            const edges = json?.[0]?.data?.user?.videos?.edges || [];
+            let videos = edges.map(edge => edge.node).filter(Boolean);
+
+            if (titleFilter && titleFilter.trim() !== '') {
+                const needle = titleFilter.trim().toLowerCase();
+                videos = videos.filter(v => (v.title || '').toLowerCase().includes(needle));
+            }
+
+            return videos;
+        }
+
+        function renderTwitchFallback(listContainer, username) {
+            listContainer.innerHTML = `
+                <div class="video-card" onclick="window.open('https://www.twitch.tv/${username}/videos?filter=archives&sort=time', '_blank')">
+                    <div class="info-area">
+                        <div class="v-title" style="font-weight: 700;">Trasmissioni Recenti</div>
+                        <div class="v-meta">Apri l'archivio ufficiale delle dirette registrate</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTwitchVideos(listContainer, videos, titleFilter) {
+            listContainer.innerHTML = '';
+
+            if (videos.length === 0) {
+                const emptyMsg = titleFilter
+                    ? `Nessuna VOD trovata con il filtro "${titleFilter}".`
+                    : 'Nessuna VOD trovata per questo canale.';
+                listContainer.innerHTML = `<p style="padding:20px; text-align:center; color:var(--text-secondary);">${emptyMsg}</p>`;
+                return;
+            }
+
+            videos.forEach(v => {
+                const card = document.createElement('div');
+                card.className = 'video-card';
+                card.onclick = () => window.open(`https://www.twitch.tv/videos/${v.id}`, '_blank');
+
+                const durationText = v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)} min` : '';
+                const thumb = v.previewThumbnailURL
+                    ? v.previewThumbnailURL.replace('%{width}', '120').replace('%{height}', '68')
+                    : '';
+
+                card.innerHTML = `
+                    ${thumb ? `<img src="${thumb}" alt="" style="width:120px; height:68px; border-radius:8px; object-fit:cover; flex-shrink:0;">` : ''}
+                    <div class="info-area">
+                        <div class="v-title">${v.title || 'Senza titolo'}</div>
+                        ${durationText ? `<div class="v-meta">Durata: ${durationText}</div>` : ''}
+                    </div>
+                `;
+                listContainer.appendChild(card);
+            });
         }
 
         async function selectChannel(id) {
@@ -819,14 +923,13 @@
                 }
             } else if (channel.platform === 'twitch') {
                 const username = channel.sourceId.toLowerCase();
-                listContainer.innerHTML = `
-                    <div class="video-card" onclick="window.open('https://www.twitch.tv/${username}/videos?filter=archives&sort=time', '_blank')">
-                        <div class="info-area">
-                            <div class="v-title" style="font-weight: 700;">Trasmissioni Recenti</div>
-                            <div class="v-meta">Apri l'archivio ufficiale delle dirette registrate</div>
-                        </div>
-                    </div>
-                `;
+                try {
+                    const videos = await fetchTwitchVideos(username, channel.titleFilter);
+                    renderTwitchVideos(listContainer, videos, channel.titleFilter);
+                } catch (err) {
+                    console.error(err);
+                    renderTwitchFallback(listContainer, username);
+                }
             }
         }
 
@@ -955,11 +1058,19 @@
             let sourceId = cleanInputId(rawId, platform);
             const newId = name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(Math.random() * 1000);
 
-            channels.push({ id: newId, name: name, platform: platform, sourceId: sourceId });
+            const newChannel = { id: newId, name: name, platform: platform, sourceId: sourceId };
+
+            if (platform === 'twitch') {
+                const filterValue = document.getElementById('inputTwitchFilter').value.trim();
+                if (filterValue !== '') newChannel.titleFilter = filterValue;
+            }
+
+            channels.push(newChannel);
             localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
             
             document.getElementById('inputName').value = '';
             document.getElementById('inputId').value = '';
+            document.getElementById('inputTwitchFilter').value = '';
             
             renderAppChannels();
             renderManageChannelsList();
@@ -972,8 +1083,13 @@
             const infoBlock = document.getElementById(`info-block-${id}`);
             const actionsBlock = document.getElementById(`actions-block-${id}`);
 
+            const filterInputHtml = chan.platform === 'twitch'
+                ? `<input type="text" id="inline-filter-${id}" class="form-control" value="${chan.titleFilter || ''}" placeholder="Filtro titolo (opzionale)" style="padding: 4px 8px; font-size: 13px; margin-top: 6px;">`
+                : '';
+
             infoBlock.innerHTML = `
                 <input type="text" id="inline-input-${id}" class="form-control" value="${chan.name}" style="padding: 4px 8px; font-size: 13px;">
+                ${filterInputHtml}
             `;
             actionsBlock.innerHTML = `
                 <button class="action-btn" onclick="saveInlineRename('${id}')" style="color:#00ff00;"><i class="material-icons-round">check</i></button>
@@ -986,13 +1102,23 @@
             const input = document.getElementById(`inline-input-${id}`);
             if (!input) return;
             const newName = input.value.trim();
-            if (newName !== "") {
-                const chan = channels.find(c => c.id === id);
-                if (chan) {
-                    chan.name = newName;
-                    localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
-                    renderAppChannels();
+            const chan = channels.find(c => c.id === id);
+
+            if (chan) {
+                if (newName !== "") chan.name = newName;
+
+                if (chan.platform === 'twitch') {
+                    const filterInput = document.getElementById(`inline-filter-${id}`);
+                    const newFilter = filterInput ? filterInput.value.trim() : '';
+                    if (newFilter !== '') {
+                        chan.titleFilter = newFilter;
+                    } else {
+                        delete chan.titleFilter;
+                    }
                 }
+
+                localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                renderAppChannels();
             }
             renderManageChannelsList();
         }
