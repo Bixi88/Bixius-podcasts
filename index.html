@@ -764,7 +764,19 @@
 
         function checkInitialDataReady() {
             if (initialResumeDone) return;
-            if (apiReady && twitchApiReady && channels) {
+            if (!channels) return;
+
+            // Se non c'è nessun video da ripristinare, mostra subito il placeholder
+            if (!lastWatchedData || !lastWatchedData.videoId) {
+                loadLastWatchedVideoOnInit();
+                return;
+            }
+
+            // Aspetta solo l'API della piattaforma effettivamente necessaria per il ripristino,
+            // così un blocco/ritardo sull'altra piattaforma (es. adblocker su Twitch) non impedisce
+            // il ripristino dell'ultimo video visto.
+            const neededApiReady = lastWatchedData.platform === 'twitch' ? twitchApiReady : apiReady;
+            if (neededApiReady) {
                 loadLastWatchedVideoOnInit();
             }
         }
