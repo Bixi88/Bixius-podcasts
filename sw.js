@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bixius-podcast-v3';
+const CACHE_NAME = 'bixius-podcast-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -31,7 +31,22 @@ self.addEventListener('fetch', (e) => {
   const url = e.request.url;
 
   if (url.includes('api.rss2json.com') || url.includes('youtube.com') || url.includes('twitch.tv') || url.includes('youtu.be')) {
-    return fetch(e.request);
+    return;
+  }
+
+  // Network-first per la pagina principale (index.html / navigazioni):
+  // così ogni aggiornamento pubblicato viene visto subito, senza restare bloccati
+  // su una versione vecchia in cache. Se manca la rete, usa la copia in cache.
+  const isNavigation = e.request.mode === 'navigate' || url.endsWith('/') || url.endsWith('index.html');
+  if (isNavigation) {
+    e.respondWith(
+      fetch(e.request).then((response) => {
+        const responseClone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, responseClone));
+        return response;
+      }).catch(() => caches.match(e.request))
+    );
+    return;
   }
 
   e.respondWith(
