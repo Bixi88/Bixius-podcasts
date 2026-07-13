@@ -717,6 +717,8 @@
             
             // Ripristino strutture dati principali
             channels = serverData.channels ? Object.values(serverData.channels) : [];
+            // Rimuove eventuali voci corrotte/incomplete (es. buchi negli indici salvati su Firebase)
+            channels = channels.filter(c => c && typeof c === 'object' && c.id && c.name);
             // Conserva l'ordinamento se salvato come array indici o lascia intatto
             if (serverData.channelsOrder) {
                 const order = serverData.channelsOrder;
@@ -752,6 +754,7 @@
             // Fallback locale immediato se manca rete
             try {
                 channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
+                channels = channels.filter(c => c && typeof c === 'object' && c.id && c.name);
                 timestampsCache = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                 completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
             } catch(e){}
@@ -816,6 +819,7 @@
             }
 
             channels.forEach(chan => {
+                if (!chan || !chan.name) return; // salta voci corrotte/incomplete
                 const isTwitch = chan.platform === 'twitch';
                 const item = document.createElement('div');
                 item.className = `channel-item ${isTwitch ? 'twitch-type' : ''}`;
@@ -887,6 +891,7 @@
                 return;
             }
             channels.forEach(chan => {
+                if (!chan || !chan.name) return; // salta voci corrotte/incomplete
                 const typeText = chan.platform === 'twitch' ? 'Twitch' : 'YouTube';
                 const filterText = chan.titleFilter ? ` · Filtro: "${chan.titleFilter}"` : '';
                 const div = document.createElement('div');
