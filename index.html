@@ -621,7 +621,11 @@
         // ---------------------------------------------------------------
         // STATO GLOBALE
         // ---------------------------------------------------------------
-        let channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
+        let channels = [];
+        try {
+            channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
+        } catch(e) { channels = []; }
+        
         let currentView = 'home';
         let displayedVideoUrls = new Set();
         let loadedItems = [];
@@ -639,9 +643,6 @@
         let twitchTimeTrackerInterval = null;
         let initialResumeDone = false;
 
-        // Endpoint pubblico usato dal sito twitch.tv stesso per interrogare le VOD di un canale.
-        // Non richiede alcuna chiave/registrazione da parte nostra: e' lo stesso Client-ID
-        // che il player web di Twitch invia da browser, quindi funziona interamente client-side.
         const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
         const TWITCH_VOD_QUERY_HASH = '67004f7881e65c297936f32c75246470629557a393788fb5a69d6d9a25a8fd5f';
 
@@ -655,8 +656,6 @@
             loadLastWatchedVideoOnInit();
         }
 
-        // SDK ufficiale di embed Twitch: serve per tenere traccia del minutaggio
-        // (un semplice iframe non espone getCurrentTime/seek).
         const twitchTag = document.createElement('script');
         twitchTag.src = "https://player.twitch.tv/js/embed/v1.js";
         twitchTag.onload = function () {
@@ -664,7 +663,6 @@
             loadLastWatchedVideoOnInit();
         };
         document.head.appendChild(twitchTag);
-
 
         function updatePlaceholder() {
             const platform = document.getElementById('inputPlatform').value;
@@ -792,9 +790,6 @@
             });
         }
 
-        // ---------------------------------------------------------------
-        // RIORDINO CANALI: trascinamento tramite le tre linette (touch + mouse)
-        // ---------------------------------------------------------------
         function initDragHandle(handle, itemDiv) {
             handle.addEventListener('pointerdown', function (e) {
                 e.preventDefault();
@@ -837,7 +832,9 @@
 
                     const newOrderIds = Array.from(list.children).map(el => el.dataset.chanId);
                     channels.sort((a, b) => newOrderIds.indexOf(a.id) - newOrderIds.indexOf(b.id));
-                    localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                    try {
+                        localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                    } catch(e){}
                     renderAppChannels();
                 }
 
@@ -851,7 +848,11 @@
             
             const listContainer = document.getElementById('videoList');
             const targetCount = Math.min(currentVisibleCount, loadedItems.length);
-            const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
+            
+            let completedVideos = [];
+            try {
+                completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
+            } catch(e){}
             
             for (let i = listContainer.children.length; i < targetCount; i++) {
                 const item = loadedItems[i];
@@ -886,15 +887,12 @@
             }
         }
 
-        // ---------------------------------------------------------------
-        // TWITCH: recupero VOD del canale senza bisogno di API key esterne
-        // ---------------------------------------------------------------
         async function fetchTwitchVideos(username, titleFilter) {
             const requestBody = [{
                 operationName: 'FilterableVideoTower_Videos',
                 variables: {
                     channelOwnerLogin: username,
-                    broadcastType: null, // null = tutte le VOD (dirette, highlight, upload)
+                    broadcastType: null,
                     videoSort: 'TIME',
                     limit: 30,
                     cursor: null
@@ -916,18 +914,16 @@
             if (!res.ok) throw new Error(`Richiesta HTTP a Twitch fallita (status ${res.status})`);
 
             const json = await res.json();
-            console.log('[Twitch GQL] risposta grezza per', username, ':', json);
-
             const payload = Array.isArray(json) ? json[0] : json;
             if (!payload) throw new Error('Risposta Twitch vuota o in formato inatteso.');
             if (payload.errors) {
                 const isStaleQuery = payload.errors.some(e => e.message === 'PersistedQueryNotFound');
                 if (isStaleQuery) {
-                    throw new Error('Twitch ha aggiornato la query interna (succede di tanto in tanto): serve un nuovo hash lato codice.');
+                    throw new Error('Twitch ha aggiornato la query interna: serve un nuovo hash.');
                 }
-                throw new Error('Twitch ha risposto con un errore GraphQL: ' + JSON.stringify(payload.errors));
+                throw new Error('Twitch ha risposto con un errore GraphQL.');
             }
-            if (!payload.data || !payload.data.user) throw new Error(`Utente Twitch "${username}" non trovato (controlla che il nome utente sia corretto).`);
+            if (!payload.data || !payload.data.user) throw new Error(`Utente Twitch "${username}" non trovato.`);
 
             const edges = payload.data.user.videos?.edges || [];
             let videos = edges.map(edge => edge.node).filter(Boolean);
@@ -963,7 +959,10 @@
                 return;
             }
 
-            const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
+            let completedVideos = [];
+            try {
+                completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
+            } catch(e){}
 
             videos.forEach(v => {
                 const isCompleted = completedVideos.includes(`tw-${v.id}`);
@@ -1054,7 +1053,7 @@
 
                 } catch (err) {
                     console.error(err);
-                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore caricamento feed.</p>';
+                    listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore caricamento feed (Usa l\'archivio se necessario).</p>';
                 }
             } else if (channel.platform === 'twitch') {
                 const username = channel.sourceId.toLowerCase();
@@ -1082,9 +1081,11 @@
             if(!apiReady) return;
             currentPlayingVideoId = videoId;
             
-            localStorage.setItem('bixius_last_video_data', JSON.stringify({
-                videoId: videoId, title: title, platform: currentSelectedChannelType
-            }));
+            try {
+                localStorage.setItem('bixius_last_video_data', JSON.stringify({
+                    videoId: videoId, title: title, platform: currentSelectedChannelType
+                }));
+            } catch(e){}
 
             document.querySelectorAll('.video-card').forEach(c => c.classList.remove('active-yt', 'active-twitch'));
             const selectedCard = document.getElementById(`card-${videoId}`);
@@ -1094,8 +1095,10 @@
 
             let startAt = savedStartSeconds;
             if (startAt === 0) {
-                const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
-                startAt = history[videoId] || 0;
+                try {
+                    const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+                    startAt = history[videoId] || 0;
+                } catch(e){}
             }
 
             if(ytPlayer) {
@@ -1134,9 +1137,11 @@
             currentPlayingVideoId = `tw-${videoId}`;
             currentSelectedChannelType = 'twitch';
 
-            localStorage.setItem('bixius_last_video_data', JSON.stringify({
-                videoId: videoId, title: title, platform: 'twitch'
-            }));
+            try {
+                localStorage.setItem('bixius_last_video_data', JSON.stringify({
+                    videoId: videoId, title: title, platform: 'twitch'
+                }));
+            } catch(e){}
 
             document.querySelectorAll('.video-card').forEach(c => c.classList.remove('active-yt', 'active-twitch'));
             const selectedCard = document.getElementById(`card-tw-${videoId}`);
@@ -1152,19 +1157,17 @@
 
             let startAt = savedStartSeconds;
             if (!startAt) {
-                const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
-                startAt = history[`tw-${videoId}`] || 0;
+                try {
+                    const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+                    startAt = history[`tw-${videoId}`] || 0;
+                } catch(e){}
             }
 
-            // Il parametro "parent" deve corrispondere al dominio da cui l'app viene servita,
-            // altrimenti Twitch rifiuta l'embed. Se l'host non e' disponibile (es. file://) si
-            // usa "localhost" come fallback, ma in quel caso l'embed potrebbe non funzionare.
             const parentDomain = window.location.hostname || 'localhost';
 
             document.getElementById('playerWrapper').innerHTML = `<div id="twitchIframeContainer" style="width:100%; height:100%;"></div>`;
 
             if (typeof Twitch === 'undefined' || !Twitch.Player) {
-                // Fallback: iframe semplice senza possibilita' di salvare il minutaggio
                 document.getElementById('playerWrapper').innerHTML = `
                     <iframe
                         src="https://player.twitch.tv/?video=${videoId}&parent=${parentDomain}&autoplay=true&time=${secondsToTwitchTime(startAt)}"
@@ -1228,27 +1231,31 @@
             }
 
             if (currentTime > 2) {
-                const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
-                history[currentPlayingVideoId] = currentTime;
-                localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
+                try {
+                    const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+                    history[currentPlayingVideoId] = currentTime;
+                    localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
+                } catch(e){}
             }
         }
 
         function markTwitchCompleted() {
             if (!currentPlayingVideoId) return;
 
-            const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
-            delete history[currentPlayingVideoId];
-            localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
+            try {
+                const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+                delete history[currentPlayingVideoId];
+                localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
 
-            const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
-            if (!completedVideos.includes(currentPlayingVideoId)) {
-                completedVideos.push(currentPlayingVideoId);
-                localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
+                const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
+                if (!completedVideos.includes(currentPlayingVideoId)) {
+                    completedVideos.push(currentPlayingVideoId);
+                    localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
 
-                const card = document.getElementById(`card-${currentPlayingVideoId}`);
-                if (card) card.classList.add('completed');
-            }
+                    const card = document.getElementById(`card-${currentPlayingVideoId}`);
+                    if (card) card.classList.add('completed');
+                }
+            } catch(e){}
         }
 
         function onPlayerStateChange(event) {
@@ -1271,29 +1278,33 @@
 
         function saveCurrentTimestamp() {
             if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function' && currentPlayingVideoId) {
-                const currentTime = Math.floor(ytPlayer.getCurrentTime());
-                const duration = Math.floor(ytPlayer.getDuration() || 0);
-                
-                if (duration > 0 && (duration - currentTime) < 40) {
-                    const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
-                    delete history[currentPlayingVideoId];
-                    localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
+                try {
+                    const currentTime = Math.floor(ytPlayer.getCurrentTime());
+                    const duration = Math.floor(ytPlayer.getDuration() || 0);
                     
-                    const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
-                    if (!completedVideos.includes(currentPlayingVideoId)) {
-                        completedVideos.push(currentPlayingVideoId);
-                        localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
+                    if (duration > 0 && (duration - currentTime) < 40) {
+                        const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+                        delete history[currentPlayingVideoId];
+                        localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
                         
-                        const card = document.getElementById(`card-${currentPlayingVideoId}`);
-                        if(card) card.classList.add('completed');
+                        const completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
+                        if (!completedVideos.includes(currentPlayingVideoId)) {
+                            completedVideos.push(currentPlayingVideoId);
+                            localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
+                            
+                            const card = document.getElementById(`card-${currentPlayingVideoId}`);
+                            if(card) card.classList.add('completed');
+                        }
+                        return;
                     }
-                    return;
-                }
 
-                if (currentTime > 2) {
-                    const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
-                    history[currentPlayingVideoId] = currentTime;
-                    localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
+                    if (currentTime > 2) {
+                        const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+                        history[currentPlayingVideoId] = currentTime;
+                        localStorage.setItem('bixius_video_timestamps', JSON.stringify(history));
+                    }
+                } catch (e) {
+                    console.error("Errore salvataggio timestamp sicuro YouTube:", e);
                 }
             }
         }
@@ -1301,7 +1312,11 @@
         function loadLastWatchedVideoOnInit() {
             if (initialResumeDone) return;
 
-            const lastVideoData = JSON.parse(localStorage.getItem('bixius_last_video_data'));
+            let lastVideoData = null;
+            try {
+                lastVideoData = JSON.parse(localStorage.getItem('bixius_last_video_data'));
+            } catch(e){}
+
             if (!lastVideoData || !lastVideoData.videoId) {
                 showEmptyPlayerPlaceholder();
                 initialResumeDone = true;
@@ -1309,14 +1324,18 @@
             }
 
             currentSelectedChannelType = lastVideoData.platform || 'youtube_channel';
-            const history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+            
+            let history = {};
+            try {
+                history = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+            } catch(e){}
 
             if (lastVideoData.platform === 'twitch') {
-                if (!twitchApiReady) return; // verra' richiamata di nuovo al caricamento dell'SDK Twitch
+                if (!twitchApiReady) return; 
                 const savedSeconds = history[`tw-${lastVideoData.videoId}`] || 0;
                 launchTwitchVideo(lastVideoData.videoId, lastVideoData.title, savedSeconds);
             } else {
-                if (!apiReady) return; // verra' richiamata di nuovo da onYouTubeIframeAPIReady
+                if (!apiReady) return; 
                 const savedSeconds = history[lastVideoData.videoId] || 0;
                 launchVideo(lastVideoData.videoId, lastVideoData.title, savedSeconds);
             }
@@ -1350,7 +1369,9 @@
             }
 
             channels.push(newChannel);
-            localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+            try {
+                localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+            } catch(e){}
             
             document.getElementById('inputName').value = '';
             document.getElementById('inputId').value = '';
@@ -1401,7 +1422,9 @@
                     }
                 }
 
-                localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                try {
+                    localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                } catch(e){}
                 renderAppChannels();
             }
             renderManageChannelsList();
@@ -1425,7 +1448,9 @@
         function confirmDeleteSingleChannel() {
             if (pendingActionTargetId) {
                 channels = channels.filter(c => c.id !== pendingActionTargetId);
-                localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                try {
+                    localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+                } catch(e){}
                 renderAppChannels();
                 renderManageChannelsList();
             }
@@ -1457,16 +1482,20 @@
         }
 
         function executeResetOnlyCache() {
-            localStorage.removeItem('bixius_video_timestamps');
-            localStorage.removeItem('bixius_video_completati');
-            localStorage.removeItem('bixius_last_video_data');
+            try {
+                localStorage.removeItem('bixius_video_timestamps');
+                localStorage.removeItem('bixius_video_completati');
+                localStorage.removeItem('bixius_last_video_data');
+            } catch(e){}
             closeCustomModal();
             window.location.reload();
         }
 
         function executeClearAll() {
             channels = [];
-            localStorage.clear();
+            try {
+                localStorage.clear();
+            } catch(e){}
             renderAppChannels();
             renderManageChannelsList();
             document.getElementById('videoList').innerHTML = '<p style="padding:24px 4px; color:var(--text-secondary); text-align:center;">Tutto cancellato.</p>';
@@ -1507,19 +1536,17 @@
             loadLastWatchedVideoOnInit();
         };
 
+        // Eventi di sicurezza potenziati per il salvataggio immediato
         window.onbeforeunload = function() {
             saveCurrentTimestamp();
             saveTwitchTimestamp();
         };
 
-        // Su Android (PWA/app in background) 'onbeforeunload' spesso non scatta:
-        // questi eventi sono piu' affidabili per salvare il minutaggio in tempo.
         document.addEventListener('visibilitychange', function () {
-            if (document.visibilityState === 'hidden') {
-                saveCurrentTimestamp();
-                saveTwitchTimestamp();
-            }
+            saveCurrentTimestamp();
+            saveTwitchTimestamp();
         });
+        
         window.addEventListener('pagehide', function () {
             saveCurrentTimestamp();
             saveTwitchTimestamp();
