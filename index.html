@@ -342,6 +342,38 @@
             color: var(--text-secondary);
         }
 
+        .mark-seen-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 6px;
+            margin: -6px -4px -6px 0;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background-color 0.15s, color 0.15s, transform 0.1s;
+        }
+
+        .mark-seen-btn:hover {
+            background-color: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+        }
+
+        .mark-seen-btn:active {
+            transform: scale(0.9);
+        }
+
+        .mark-seen-btn i {
+            font-size: 22px;
+        }
+
+        .mark-seen-btn.is-seen {
+            color: #4caf50;
+        }
+
         .settings-card {
             background-color: var(--bg-surface);
             padding: 20px;
@@ -1131,6 +1163,9 @@
                         <div class="v-title">${item.title}</div>
                         ${metaHtml}
                     </div>
+                    <button class="mark-seen-btn${isCompleted ? ' is-seen' : ''}" title="${isCompleted ? 'Segna come da vedere' : 'Segna come già visto'}" onclick="toggleVideoCompleted('${item.videoId}', event)">
+                        <i class="material-icons-round">${isCompleted ? 'check_circle' : 'radio_button_unchecked'}</i>
+                    </button>
                 `;
                 listContainer.appendChild(card);
             }
@@ -1317,6 +1352,9 @@
                         <div class="v-title">${v.title || 'Senza titolo'}</div>
                         ${durationText ? `<div class="v-meta">Durata: ${durationText}</div>` : ''}
                     </div>
+                    <button class="mark-seen-btn${isCompleted ? ' is-seen' : ''}" title="${isCompleted ? 'Segna come da vedere' : 'Segna come già visto'}" onclick="toggleVideoCompleted('tw-${v.id}', event)">
+                        <i class="material-icons-round">${isCompleted ? 'check_circle' : 'radio_button_unchecked'}</i>
+                    </button>
                 `;
                 listContainer.appendChild(card);
             });
@@ -1521,11 +1559,80 @@
                 completedVideos.push(id);
                 localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
                 rootRef.child('completed').set(completedVideos);
-                
-                const card = document.getElementById(`card-${id}`) || document.getElementById(`card-tw-${id.replace('tw-', '')}`);
-                if(card) card.classList.add('completed');
             }
+            updateCardCompletedUI(id, true);
             updateSyncTimeLabel();
+        }
+
+        function unmarkVideoCompleted(id) {
+            if (!id) return;
+            completedVideos = completedVideos.filter(v => v !== id);
+            try {
+                localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
+            } catch(e){}
+            rootRef.child('completed').set(completedVideos);
+            updateCardCompletedUI(id, false);
+
+            // Se è il video attualmente in riproduzione ed è vicino alla fine (es. click
+            // accidentale sulla barra di avanzamento che l'ha "completato" da solo), lo
+            // riporta indietro di qualche secondo per evitare che si segni di nuovo da solo.
+            rewindIfNearEnd(id);
+
+            updateSyncTimeLabel();
+        }
+
+        // Bottone minimal sulle card: click singolo per segnare/de-segnare come visto.
+        // Serve sia per marcare manualmente un video visto altrove, sia per annullare
+        // un completamento involontario (bottone premuto per sbaglio, o barra di
+        // avanzamento del player trascinata per errore fino alla fine).
+        function toggleVideoCompleted(id, event) {
+            if (event) event.stopPropagation();
+            if (completedVideos.includes(id)) {
+                unmarkVideoCompleted(id);
+            } else {
+                markVideoCompleted(id);
+            }
+        }
+
+        function updateCardCompletedUI(id, completed) {
+            const card = document.getElementById(`card-${id}`) || document.getElementById(`card-tw-${id.replace('tw-', '')}`);
+            if (!card) return;
+            card.classList.toggle('completed', completed);
+            const btn = card.querySelector('.mark-seen-btn');
+            if (btn) {
+                btn.classList.toggle('is-seen', completed);
+                btn.title = completed ? 'Segna come da vedere' : 'Segna come già visto';
+                btn.innerHTML = `<i class="material-icons-round">${completed ? 'check_circle' : 'radio_button_unchecked'}</i>`;
+            }
+        }
+
+        function rewindIfNearEnd(id) {
+            const REWIND_SECONDS = 30;
+            try {
+                if (id === currentPlayingVideoId && ytPlayer && typeof ytPlayer.getDuration === 'function') {
+                    const duration = Math.floor(ytPlayer.getDuration() || 0);
+                    const currentTime = Math.floor(ytPlayer.getCurrentTime() || 0);
+                    if (duration > 0 && (duration - currentTime) < 40) {
+                        const target = Math.max(0, duration - REWIND_SECONDS);
+                        ytPlayer.seekTo(target, true);
+                        timestampsCache[id] = target;
+                        localStorage.setItem('bixius_video_timestamps', JSON.stringify(timestampsCache));
+                        rootRef.child(`history/${id}`).set(target);
+                    }
+                } else if (id === currentPlayingVideoId && twitchPlayer && typeof twitchPlayer.getDuration === 'function') {
+                    const duration = Math.floor(twitchPlayer.getDuration() || 0);
+                    const currentTime = Math.floor(twitchPlayer.getCurrentTime() || 0);
+                    if (duration > 0 && (duration - currentTime) < 40) {
+                        const target = Math.max(0, duration - REWIND_SECONDS);
+                        twitchPlayer.seek(target);
+                        timestampsCache[id] = target;
+                        localStorage.setItem('bixius_video_timestamps', JSON.stringify(timestampsCache));
+                        rootRef.child(`history/${id}`).set(target);
+                    }
+                }
+            } catch (e) {
+                console.error('Errore nel riavvolgimento automatico:', e);
+            }
         }
 
         function loadLastWatchedVideoOnInit() {
