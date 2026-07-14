@@ -371,7 +371,11 @@
         }
 
         .mark-seen-btn.is-seen {
-            color: #4caf50;
+            color: var(--yt-red);
+        }
+
+        .mark-seen-btn.is-twitch.is-seen {
+            color: var(--twitch-purple);
         }
 
         .settings-card {
@@ -1352,7 +1356,7 @@
                         <div class="v-title">${v.title || 'Senza titolo'}</div>
                         ${durationText ? `<div class="v-meta">Durata: ${durationText}</div>` : ''}
                     </div>
-                    <button class="mark-seen-btn${isCompleted ? ' is-seen' : ''}" title="${isCompleted ? 'Segna come da vedere' : 'Segna come già visto'}" onclick="toggleVideoCompleted('tw-${v.id}', event)">
+                    <button class="mark-seen-btn is-twitch${isCompleted ? ' is-seen' : ''}" title="${isCompleted ? 'Segna come da vedere' : 'Segna come già visto'}" onclick="toggleVideoCompleted('tw-${v.id}', event)">
                         <i class="material-icons-round">${isCompleted ? 'check_circle' : 'radio_button_unchecked'}</i>
                     </button>
                 `;
