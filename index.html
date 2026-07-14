@@ -595,11 +595,11 @@
                 <label id="idLabel">ID Canale UC...</label>
                 <input type="text" id="inputId" class="form-control" placeholder="Incolla l'ID qui...">
             </div>
-            <div class="form-group" id="twitchFilterGroup" style="display:none;">
-                <label>Filtro Titolo Rubrica (opzionale)</label>
+            <div class="form-group" id="twitchFilterGroup">
+                <label id="filterGroupLabel">Filtro Titolo (opzionale)</label>
                 <input type="text" id="inputTwitchFilter" class="form-control" placeholder="Es. Barba e Baffi">
-                <p style="font-size:11px; color:var(--text-secondary); margin-top:6px;">
-                    Se compilato, in app verranno mostrate solo le VOD Twitch il cui titolo contiene questo testo.
+                <p style="font-size:11px; color:var(--text-secondary); margin-top:6px;" id="filterGroupDesc">
+                    Se compilato, verranno mostrati solo i video/VOD il cui titolo contiene questo testo.
                 </p>
             </div>
             <button class="btn btn-primary" style="width:100%;" onclick="addChannel()">
@@ -801,15 +801,18 @@
             const platform = document.getElementById('inputPlatform').value;
             const label = document.getElementById('idLabel');
             const input = document.getElementById('inputId');
-            const filterGroup = document.getElementById('twitchFilterGroup');
+            const filterLabel = document.getElementById('filterGroupLabel');
+            const filterDesc = document.getElementById('filterGroupDesc');
             if(platform === 'twitch') {
                 label.innerText = "Nome Utente Twitch";
                 input.placeholder = "ilpregianza";
-                filterGroup.style.display = 'block';
+                filterLabel.innerText = "Filtro Titolo Rubrica (opzionale)";
+                filterDesc.innerText = "Se compilato, in app verranno mostrate solo le VOD Twitch il cui titolo contiene questo testo.";
             } else {
                 label.innerText = "ID Canale YouTube UC...";
                 input.placeholder = "UCxxxxxxxxxxxxxxxxx";
-                filterGroup.style.display = 'none';
+                filterLabel.innerText = "Filtro Titolo Video (opzionale)";
+                filterDesc.innerText = "Se compilato, in app verranno mostrati solo i video YouTube il cui titolo contiene questo testo.";
             }
         }
 
@@ -997,10 +1000,8 @@
             const infoBlock = document.getElementById(`info-block-${id}`);
             const actionsBlock = document.getElementById(`actions-block-${id}`);
 
-            const filterInputHtml = chan.platform === 'twitch'
-                ? `<label style="font-size:10px; color:var(--text-secondary); margin-top:4px; display:block;">Filtro Titolo:</label>
-                   <input type="text" id="inline-filter-${id}" class="form-control" value="${chan.titleFilter || ''}" placeholder="Es. Barba e Baffi" style="padding: 4px 8px; font-size: 13px;">`
-                : '';
+            const filterInputHtml = `<label style="font-size:10px; color:var(--text-secondary); margin-top:4px; display:block;">Filtro Titolo:</label>
+                   <input type="text" id="inline-filter-${id}" class="form-control" value="${chan.titleFilter || ''}" placeholder="Es. Barba e Baffi" style="padding: 4px 8px; font-size: 13px;">`;
 
             infoBlock.innerHTML = `
                 <label style="font-size:10px; color:var(--text-secondary); display:block;">Nome Canale:</label>
@@ -1038,14 +1039,12 @@
                     }
                 }
 
-                if (chan.platform === 'twitch') {
-                    const filterInput = document.getElementById(`inline-filter-${id}`);
-                    const newFilter = filterInput ? filterInput.value.trim() : '';
-                    if (newFilter !== '') {
-                        chan.titleFilter = newFilter;
-                    } else {
-                        delete chan.titleFilter;
-                    }
+                const filterInput = document.getElementById(`inline-filter-${id}`);
+                const newFilter = filterInput ? filterInput.value.trim() : '';
+                if (newFilter !== '') {
+                    chan.titleFilter = newFilter;
+                } else {
+                    delete chan.titleFilter;
                 }
 
                 try {
@@ -1054,6 +1053,13 @@
                 
                 saveChannelsToServer();
                 renderAppChannels();
+
+                // Refresh "nascosto": se il canale modificato è quello attualmente selezionato,
+                // ricarica subito la lista video in background così, tornando alla home,
+                // è già aggiornata senza dover cambiare canale e tornare indietro.
+                if (chan.id === lastActiveChannelId) {
+                    selectChannel(chan.id);
+                }
             }
             renderManageChannelsList();
         }
@@ -1070,10 +1076,8 @@
 
             const newChannel = { id: newId, name: name, platform: platform, sourceId: sourceId };
 
-            if (platform === 'twitch') {
-                const filterValue = document.getElementById('inputTwitchFilter').value.trim();
-                if (filterValue !== '') newChannel.titleFilter = filterValue;
-            }
+            const filterValue = document.getElementById('inputTwitchFilter').value.trim();
+            if (filterValue !== '') newChannel.titleFilter = filterValue;
 
             channels.push(newChannel);
             try {
@@ -1194,6 +1198,19 @@
                         }
 
                         loadedItems.push({ title: title, videoId: videoId, durationText: durationText });
+                    }
+
+                    // Filtro parola chiave (stesso comportamento del filtro Twitch): se impostato,
+                    // mostra solo i video il cui titolo contiene il testo; se vuoto/rimosso, mostra tutto.
+                    if (channel.titleFilter && channel.titleFilter.trim() !== '') {
+                        const needle = channel.titleFilter.trim().toLowerCase();
+                        loadedItems = loadedItems.filter(it => (it.title || '').toLowerCase().includes(needle));
+                    }
+
+                    if (loadedItems.length === 0) {
+                        const emptyMsg = channel.titleFilter ? `Nessun video con filtro "${channel.titleFilter}".` : 'Canale vuoto.';
+                        listContainer.innerHTML = `<p style="padding:20px; text-align:center; color:var(--text-secondary);">${emptyMsg}</p>`;
+                        return;
                     }
                     
                     listContainer.innerHTML = '';
