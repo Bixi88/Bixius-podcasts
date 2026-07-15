@@ -1196,18 +1196,91 @@
             return hours * 3600 + mins * 60 + secs;
         }
 
-        // Carica gli ultimi video di un canale tramite il Worker Cloudflare proprietario.
-        // Il Worker scarica il feed RSS ufficiale di YouTube server-side (niente CORS,
-        // niente chiave API, niente proxy pubblici) e lo mette in cache sull'edge.
+        // Carica gli ultimi video di un canale tramite il Worker Cloudflare proprietario
+        // (che scarica il feed RSS ufficiale di YouTube server-side, niente CORS,
+        // niente chiave API). Se il Worker non è raggiungibile (down, URL errato,
+        // problemi di rete), si ripiega sui proxy CORS pubblici come backup finale.
         async function fetchYoutubeChannelViaWorker(channelId) {
-            const res = await fetch(`${YT_WORKER_URL}/youtube?channel_id=${encodeURIComponent(channelId)}`, {
-                cache: 'no-store'
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                throw new Error(data?.error || `Worker ha risposto ${res.status}`);
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+                const res = await fetch(`${YT_WORKER_URL}/youtube?channel_id=${encodeURIComponent(channelId)}`, {
+                    cache: 'no-store', signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data?.error || `Worker ha risposto ${res.status}`);
+                }
+                return data.items || [];
+            } catch (workerErr) {
+                console.warn('Worker Cloudflare non raggiungibile, ripiego su proxy pubblico:', workerErr);
+                return await fetchYoutubeChannelViaPublicProxy(channelId);
             }
-            return data.items || [];
+        }
+
+        // Backup finale: feed RSS ufficiale di YouTube via proxy CORS pubblici,
+        // usato solo se il Worker Cloudflare non risponde affatto.
+        async function fetchYoutubeChannelViaPublicProxy(channelId) {
+            const targetUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
+            const proxies = [
+                (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+                (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+                (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+            ];
+
+            let xmlDoc = null;
+
+            for (let i = 0; i < proxies.length; i++) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+                try {
+                    const proxyUrl = proxies[i](targetUrl);
+                    const res = await fetch(proxyUrl, { cache: 'no-store', signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (!res.ok) continue;
+
+                    const xmlText = await res.text();
+                    if (!xmlText || !xmlText.includes('<feed')) continue;
+
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(xmlText, "text/xml");
+                    if (doc.getElementsByTagName('parsererror').length > 0) continue;
+                    if (doc.getElementsByTagName('entry').length === 0) continue;
+
+                    xmlDoc = doc;
+                    break;
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    console.warn(`Proxy pubblico #${i + 1} fallito o in timeout:`, err);
+                    continue;
+                }
+            }
+
+            if (!xmlDoc) throw new Error('Nessun proxy pubblico disponibile in questo momento');
+
+            const entries = xmlDoc.getElementsByTagName("entry");
+            const items = [];
+            for (let i = 0; i < entries.length; i++) {
+                const entry = entries[i];
+                const title = entry.getElementsByTagName("title")[0].textContent;
+                const videoId = entry.getElementsByTagName("yt:videoId")[0].textContent;
+
+                let seconds = 0;
+                let durationText = "";
+                const durationElements = entry.getElementsByTagName("media:duration");
+                if (durationElements.length > 0) {
+                    seconds = parseInt(durationElements[0].textContent, 10) || 0;
+                    const mins = Math.floor(seconds / 60);
+                    durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
+                }
+
+                if ((seconds > 0 && seconds <= 65) || title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
+                    continue;
+                }
+                items.push({ title, videoId, durationText });
+            }
+            return items;
         }
 
         async function selectChannel(id) {
