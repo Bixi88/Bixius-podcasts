@@ -1175,6 +1175,52 @@
             }
         }
 
+        // Prova più proxy CORS in sequenza: se uno fallisce o restituisce contenuto
+        // non valido/vuoto, passa automaticamente al successivo prima di arrendersi.
+        async function fetchYoutubeFeedWithFallback(targetUrl) {
+            const proxies = [
+                (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+                (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+                (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+            ];
+
+            let lastXmlText = '';
+
+            for (let i = 0; i < proxies.length; i++) {
+                try {
+                    const proxyUrl = proxies[i](targetUrl);
+                    const res = await fetch(proxyUrl, { cache: 'no-store' });
+                    if (!res.ok) continue;
+
+                    const xmlText = await res.text();
+                    lastXmlText = xmlText;
+
+                    // Un feed valido contiene sempre questo tag: se manca, il proxy
+                    // ha quasi certamente restituito una pagina di errore/limite.
+                    if (!xmlText || !xmlText.includes('<feed')) continue;
+
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+
+                    // Se il parsing XML fallisce, DOMParser inserisce un nodo <parsererror>.
+                    if (xmlDoc.getElementsByTagName('parsererror').length > 0) continue;
+
+                    const entries = xmlDoc.getElementsByTagName("entry");
+                    if (entries.length === 0) continue; // prova il proxy successivo
+
+                    return xmlDoc; // successo
+                } catch (err) {
+                    console.warn(`Proxy #${i + 1} fallito:`, err);
+                    continue;
+                }
+            }
+
+            // Tutti i proxy hanno fallito o restituito 0 entry: ritorna comunque
+            // l'ultimo documento parsato (potrebbe essere un canale davvero vuoto).
+            const parser = new DOMParser();
+            return parser.parseFromString(lastXmlText || '<feed></feed>', "text/xml");
+        }
+
         async function selectChannel(id) {
             document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
             const currentTab = document.getElementById(`app-chan-${id}`);
@@ -1205,11 +1251,7 @@
             if (channel.platform === 'youtube_channel') {
                 try {
                     const targetUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`;
-                    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
-                    const xmlText = await res.text();
-                    
-                    const parser = new DOMParser();
-                    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                    const xmlDoc = await fetchYoutubeFeedWithFallback(targetUrl);
                     const entries = xmlDoc.getElementsByTagName("entry");
 
                     if(entries.length === 0) {
