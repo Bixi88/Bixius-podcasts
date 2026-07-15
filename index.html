@@ -650,6 +650,21 @@
         </div>
 
         <div class="settings-card">
+            <h2 style="font-size:16px; margin-bottom:4px; font-weight:700;">YouTube Data API (consigliato)</h2>
+            <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+                Senza chiave, i canali YouTube vengono caricati tramite proxy pubblici che possono saturarsi nelle ore di punta.
+                Con una chiave API gratuita di Google, il caricamento è diretto e non dipende più da servizi esterni.
+            </p>
+            <div class="form-group">
+                <label>Chiave API YouTube (opzionale)</label>
+                <input type="text" id="inputYtApiKey" class="form-control" placeholder="AIzaSy...">
+            </div>
+            <button class="btn btn-primary" style="width:100%;" onclick="saveYoutubeApiKey()">
+                <i class="material-icons-round" style="font-size:18px;">save</i>Salva Chiave
+            </button>
+        </div>
+
+        <div class="settings-card">
             <h2 style="font-size:16px; margin-bottom:12px; font-weight:700;">Manutenzione Dati</h2>
             <div style="display:flex; flex-direction:column; gap:10px;">
                 <button class="btn btn-secondary" style="background-color:#222; text-align:left; justify-content:flex-start;" onclick="openConfirmModal('cache')">
@@ -713,6 +728,7 @@
         let twitchApiReady = false;
         let twitchTimeTrackerInterval = null;
         let initialResumeDone = false;
+        let youtubeApiKey = '';
 
         const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
         const TWITCH_VOD_QUERY_HASH = '67004f7881e65c297936f32c75246470629557a393788fb5a69d6d9a25a8fd5f';
@@ -766,6 +782,7 @@
             completedVideos = serverData.completed ? Object.values(serverData.completed) : [];
             lastWatchedData = serverData.lastWatched || null;
             lastActiveChannelId = serverData.config?.lastActiveChannelId || null;
+            youtubeApiKey = serverData.config?.youtubeApiKey || localStorage.getItem('bixius_yt_api_key') || '';
 
             // Allineamento specchio locale di backup rapido
             try {
@@ -796,6 +813,7 @@
                 timestampsCache = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
                 completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
                 lastWatchedData = JSON.parse(localStorage.getItem('bixius_last_video_data')) || null;
+                youtubeApiKey = localStorage.getItem('bixius_yt_api_key') || '';
             } catch(e){}
             renderAppChannels();
             firebaseReady = true;
@@ -1175,6 +1193,65 @@
             }
         }
 
+        // Converte una durata ISO8601 (es. "PT4M13S") in secondi.
+        function parseIso8601Duration(iso) {
+            const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
+            if (!match) return 0;
+            const hours = parseInt(match[1] || '0', 10);
+            const mins = parseInt(match[2] || '0', 10);
+            const secs = parseInt(match[3] || '0', 10);
+            return hours * 3600 + mins * 60 + secs;
+        }
+
+        // Carica gli ultimi video di un canale tramite la YouTube Data API v3 ufficiale.
+        // A differenza del feed RSS via proxy, questa chiamata va diretta ai server Google
+        // (che rispondono con CORS abilitato), quindi non dipende da servizi proxy terzi.
+        // Lancia un'eccezione se la chiave manca, non è valida o la quota è esaurita:
+        // in quel caso selectChannel ricade automaticamente sul metodo RSS+proxy.
+        async function fetchYoutubeChannelViaDataAPI(channelId, apiKey) {
+            if (!apiKey) throw new Error('Nessuna chiave API impostata');
+
+            const uploadsPlaylistId = channelId.replace(/^UC/, 'UU');
+            const listUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=20&key=${apiKey}`;
+            const listRes = await fetch(listUrl);
+            if (!listRes.ok) {
+                const errBody = await listRes.json().catch(() => ({}));
+                throw new Error(`YouTube Data API playlistItems fallita (${listRes.status}): ${errBody?.error?.message || ''}`);
+            }
+            const listData = await listRes.json();
+            const rawItems = (listData.items || []).map(it => ({
+                title: it.snippet?.title || '',
+                videoId: it.snippet?.resourceId?.videoId || ''
+            })).filter(it => it.videoId);
+
+            if (rawItems.length === 0) return [];
+
+            // Recupera le durate in un'unica chiamata batch (fino a 50 id per richiesta).
+            const ids = rawItems.map(it => it.videoId).join(',');
+            const durUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${ids}&key=${apiKey}`;
+            const durRes = await fetch(durUrl);
+            const durationsById = {};
+            if (durRes.ok) {
+                const durData = await durRes.json();
+                (durData.items || []).forEach(v => {
+                    durationsById[v.id] = parseIso8601Duration(v.contentDetails?.duration);
+                });
+            }
+
+            const result = [];
+            for (const it of rawItems) {
+                const seconds = durationsById[it.videoId] || 0;
+                const mins = Math.floor(seconds / 60);
+                const durationText = seconds > 0 ? (mins > 0 ? `${mins} min` : `${seconds} s`) : '';
+
+                if ((seconds > 0 && seconds <= 65) || it.title.toLowerCase().includes('#shorts') || it.title.toLowerCase().includes('shorts')) {
+                    continue;
+                }
+                result.push({ title: it.title, videoId: it.videoId, durationText });
+            }
+            return result;
+        }
+
         // Prova più proxy CORS in sequenza: se uno fallisce, va in timeout o restituisce
         // contenuto non valido/vuoto, passa automaticamente al successivo prima di arrendersi.
         async function fetchYoutubeFeedWithFallback(targetUrl) {
@@ -1255,36 +1332,54 @@
 
             if (channel.platform === 'youtube_channel') {
                 try {
-                    const targetUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`;
-                    const xmlDoc = await fetchYoutubeFeedWithFallback(targetUrl);
-                    const entries = xmlDoc.getElementsByTagName("entry");
+                    let items = null;
 
-                    if(entries.length === 0) {
+                    // Metodo 1 (preferito, se è stata impostata una chiave API): YouTube Data API v3.
+                    if (youtubeApiKey) {
+                        try {
+                            items = await fetchYoutubeChannelViaDataAPI(channel.sourceId, youtubeApiKey);
+                        } catch (apiErr) {
+                            console.warn('YouTube Data API fallita, ripiego su RSS+proxy:', apiErr);
+                            items = null;
+                        }
+                    }
+
+                    // Metodo 2 (fallback): feed RSS ufficiale via proxy CORS pubblici.
+                    if (items === null) {
+                        const targetUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.sourceId}`;
+                        const xmlDoc = await fetchYoutubeFeedWithFallback(targetUrl);
+                        const entries = xmlDoc.getElementsByTagName("entry");
+
+                        items = [];
+                        for (let i = 0; i < entries.length; i++) {
+                            const entry = entries[i];
+                            const title = entry.getElementsByTagName("title")[0].textContent;
+                            const videoId = entry.getElementsByTagName("yt:videoId")[0].textContent;
+
+                            let seconds = 0;
+                            let durationText = "";
+                            const durationElements = entry.getElementsByTagName("media:duration");
+
+                            if(durationElements.length > 0) {
+                                seconds = parseInt(durationElements[0].textContent, 10) || 0;
+                                const mins = Math.floor(seconds / 60);
+                                durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
+                            }
+
+                            if ((seconds > 0 && seconds <= 65) || title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
+                                continue; 
+                            }
+
+                            items.push({ title: title, videoId: videoId, durationText: durationText });
+                        }
+                    }
+
+                    if (items.length === 0) {
                         listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Canale vuoto.</p>';
                         return;
                     }
 
-                    for (let i = 0; i < entries.length; i++) {
-                        const entry = entries[i];
-                        const title = entry.getElementsByTagName("title")[0].textContent;
-                        const videoId = entry.getElementsByTagName("yt:videoId")[0].textContent;
-                        
-                        let seconds = 0;
-                        let durationText = "";
-                        const durationElements = entry.getElementsByTagName("media:duration");
-                        
-                        if(durationElements.length > 0) {
-                            seconds = parseInt(durationElements[0].textContent, 10) || 0;
-                            const mins = Math.floor(seconds / 60);
-                            durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
-                        }
-
-                        if ((seconds > 0 && seconds <= 65) || title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
-                            continue; 
-                        }
-
-                        loadedItems.push({ title: title, videoId: videoId, durationText: durationText });
-                    }
+                    loadedItems = items;
 
                     // Filtro parola chiave (stesso comportamento del filtro Twitch): se impostato,
                     // mostra solo i video il cui titolo contiene il testo; se vuoto/rimosso, mostra tutto.
@@ -1816,6 +1911,20 @@
             pendingActionTargetId = null;
         }
 
+        function saveYoutubeApiKey() {
+            const val = document.getElementById('inputYtApiKey').value.trim();
+            youtubeApiKey = val;
+            try { localStorage.setItem('bixius_yt_api_key', val); } catch(e){}
+            rootRef.child('config/youtubeApiKey').set(val);
+
+            const btn = event.target.closest('button');
+            if (btn) {
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="material-icons-round" style="font-size:18px;">check</i>Salvata!';
+                setTimeout(() => { btn.innerHTML = originalHtml; }, 1500);
+            }
+        }
+
         function toggleView() {
             const home = document.getElementById('homePanel');
             const settings = document.getElementById('settingsPanel');
@@ -1826,7 +1935,9 @@
                 settings.classList.add('active');
                 icon.innerText = 'close';
                 currentView = 'settings';
-                renderManageChannelsList(); 
+                renderManageChannelsList();
+                const ytKeyInput = document.getElementById('inputYtApiKey');
+                if (ytKeyInput) ytKeyInput.value = youtubeApiKey || '';
             } else {
                 settings.classList.remove('active');
                 home.classList.add('active');
