@@ -1175,11 +1175,11 @@
             }
         }
 
-        // Prova più proxy CORS in sequenza: se uno fallisce o restituisce contenuto
-        // non valido/vuoto, passa automaticamente al successivo prima di arrendersi.
+        // Prova più proxy CORS in sequenza: se uno fallisce, va in timeout o restituisce
+        // contenuto non valido/vuoto, passa automaticamente al successivo prima di arrendersi.
         async function fetchYoutubeFeedWithFallback(targetUrl) {
             const proxies = [
-                (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+                (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
                 (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
                 (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
             ];
@@ -1187,9 +1187,13 @@
             let lastXmlText = '';
 
             for (let i = 0; i < proxies.length; i++) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000); // max 8s per proxy
+
                 try {
                     const proxyUrl = proxies[i](targetUrl);
-                    const res = await fetch(proxyUrl, { cache: 'no-store' });
+                    const res = await fetch(proxyUrl, { cache: 'no-store', signal: controller.signal });
+                    clearTimeout(timeoutId);
                     if (!res.ok) continue;
 
                     const xmlText = await res.text();
@@ -1210,13 +1214,14 @@
 
                     return xmlDoc; // successo
                 } catch (err) {
-                    console.warn(`Proxy #${i + 1} fallito:`, err);
+                    clearTimeout(timeoutId);
+                    console.warn(`Proxy #${i + 1} fallito o in timeout:`, err);
                     continue;
                 }
             }
 
-            // Tutti i proxy hanno fallito o restituito 0 entry: ritorna comunque
-            // l'ultimo documento parsato (potrebbe essere un canale davvero vuoto).
+            // Tutti i proxy hanno fallito, sono andati in timeout o hanno dato 0 entry:
+            // ritorna comunque l'ultimo documento parsato (potrebbe essere un canale davvero vuoto).
             const parser = new DOMParser();
             return parser.parseFromString(lastXmlText || '<feed></feed>', "text/xml");
         }
