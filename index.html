@@ -1333,6 +1333,7 @@
             if (channel.platform === 'youtube_channel') {
                 try {
                     let items = null;
+                    let apiErrorMessage = null;
 
                     // Metodo 1 (preferito, se è stata impostata una chiave API): YouTube Data API v3.
                     if (youtubeApiKey) {
@@ -1340,6 +1341,7 @@
                             items = await fetchYoutubeChannelViaDataAPI(channel.sourceId, youtubeApiKey);
                         } catch (apiErr) {
                             console.warn('YouTube Data API fallita, ripiego su RSS+proxy:', apiErr);
+                            apiErrorMessage = apiErr?.message || String(apiErr);
                             items = null;
                         }
                     }
@@ -1371,6 +1373,14 @@
                             }
 
                             items.push({ title: title, videoId: videoId, durationText: durationText });
+                        }
+
+                        // Se anche il fallback RSS non ha trovato nulla, e sappiamo che l'API
+                        // aveva fallito con un errore specifico, mostriamo quello: è molto più
+                        // utile di un generico "Canale vuoto" per capire cosa sistemare.
+                        if (items.length === 0 && apiErrorMessage) {
+                            listContainer.innerHTML = `<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore chiave API YouTube: ${apiErrorMessage}</p>`;
+                            return;
                         }
                     }
 
