@@ -97,6 +97,47 @@
             background-color: var(--bg-surface-hover);
         }
 
+        .hamburger-btn {
+            width: 40px;
+            height: 40px;
+        }
+
+        .hamburger {
+            position: relative;
+            width: 20px;
+            height: 16px;
+            display: inline-block;
+        }
+
+        .hamburger .bar {
+            position: absolute;
+            left: 0;
+            width: 20px;
+            height: 2px;
+            border-radius: 2px;
+            background-color: var(--text-main);
+            transition: top 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+                        transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .hamburger .bar1 {
+            top: 0;
+        }
+
+        .hamburger .bar2 {
+            top: 14px;
+        }
+
+        .hamburger.open .bar1 {
+            top: 7px;
+            transform: rotate(45deg);
+        }
+
+        .hamburger.open .bar2 {
+            top: 7px;
+            transform: rotate(-45deg);
+        }
+
         .container {
             max-width: 680px;
             margin: 0 auto;
@@ -109,6 +150,32 @@
 
         .view-panel.active {
             display: block;
+        }
+
+        /* Il pannello impostazioni è un drawer che scorre sopra la home:
+           parte fuori schermo a destra e entra scorrendo verso sinistra;
+           alla chiusura esce di nuovo verso destra. */
+        #settingsPanel {
+            display: block;
+            position: fixed;
+            top: 56px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--bg-main);
+            overflow-y: auto;
+            z-index: 95;
+            padding-top: 20px;
+            padding-bottom: 90px;
+            transform: translateX(100%);
+            transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+            box-shadow: -12px 0 40px rgba(0, 0, 0, 0.55);
+            pointer-events: none;
+        }
+
+        #settingsPanel.active {
+            transform: translateX(0);
+            pointer-events: auto;
         }
 
         .player-section {
@@ -127,6 +194,12 @@
             position: relative;
             border-radius: var(--radius-player);
             overflow: hidden;
+            isolation: isolate;
+            /* Il clip-path è il fix affidabile per il bug noto di Chrome/Safari per cui
+               overflow:hidden + border-radius non riescono a "tagliare" l'iframe video
+               una volta che questo viene promosso a layer video hardware-accelerato. */
+            clip-path: inset(0 round var(--radius-player));
+            -webkit-clip-path: inset(0 round var(--radius-player));
         }
 
         .player-wrapper iframe {
@@ -134,6 +207,7 @@
             height: 100%;
             border: none;
             border-radius: var(--radius-player);
+            display: block;
         }
 
         .no-video-placeholder {
@@ -160,6 +234,97 @@
             margin-bottom: 12px;
             padding-left: 4px;
             color: var(--text-secondary);
+        }
+
+        .content-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .content-header .section-title {
+            margin-bottom: 0;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .filter-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+            flex-shrink: 0;
+            padding: 4px 4px;
+        }
+
+        .filter-toggle-text {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+            transition: color 0.25s ease;
+        }
+
+        .filter-toggle-text i {
+            font-size: 15px;
+        }
+
+        .filter-toggle:has(input:checked) .filter-toggle-text {
+            color: var(--text-main);
+        }
+
+        .mini-switch {
+            position: relative;
+            width: 34px;
+            height: 20px;
+            display: inline-flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .mini-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+        }
+
+        .mini-switch .track {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(255, 255, 255, 0.18);
+            border-radius: 20px;
+            transition: background-color 0.25s ease;
+        }
+
+        .mini-switch .thumb {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background-color: #ffffff;
+            border-radius: 50%;
+            transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.25s ease;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+        }
+
+        .mini-switch input:checked ~ .track {
+            background-color: var(--yt-red);
+        }
+
+        .mini-switch input:checked ~ .track .thumb {
+            transform: translateX(14px);
         }
 
         .channels-slider-wrapper {
@@ -588,8 +753,11 @@
             <i class="material-icons-round play-logo">play_circle_filled</i>
             <h1 id="appTitle">Bixius's Choice Podcasts</h1>
         </div>
-        <button class="icon-btn" id="toggleViewBtn" onclick="toggleView()">
-            <i class="material-icons-round" id="viewIcon">settings</i>
+        <button class="icon-btn hamburger-btn" id="toggleViewBtn" onclick="toggleView()" aria-label="Apri impostazioni">
+            <span class="hamburger" id="hamburgerIcon">
+                <span class="bar bar1"></span>
+                <span class="bar bar2"></span>
+            </span>
         </button>
     </div>
 
@@ -605,7 +773,19 @@
             <div class="channels-slider" id="channelsSlider"></div>
         </div>
 
-        <h2 class="section-title" id="currentChannelTitle" style="display:none;">Ultimi video pubblicati</h2>
+        <div class="content-header" id="contentHeaderRow" style="display:none;">
+            <h2 class="section-title" id="currentChannelTitle">Ultimi video pubblicati</h2>
+            <label class="filter-toggle" id="filterToggleWrap" style="display:none;">
+                <span class="filter-toggle-text">
+                    <i class="material-icons-round">filter_alt</i>
+                    Filtro
+                </span>
+                <span class="mini-switch">
+                    <input type="checkbox" id="filterToggleInput" onchange="onFilterToggleChange()">
+                    <span class="track"><span class="thumb"></span></span>
+                </span>
+            </label>
+        </div>
         <div class="video-list" id="videoList">
             <p id="initialPlaceholder" style="padding: 24px 4px; color: var(--text-secondary); text-align: center; font-size: 14px;">
                 Caricamento dati dal server...
@@ -1092,6 +1272,7 @@
                     chan.titleFilter = newFilter;
                 } else {
                     delete chan.titleFilter;
+                    delete chan.titleFilterActive;
                 }
 
                 try {
@@ -1297,7 +1478,25 @@
             rootRef.child('config/lastActiveChannelId').set(id);
 
             document.getElementById('currentChannelTitle').innerText = `Contenuti di ${channel.name}`;
-            document.getElementById('currentChannelTitle').style.display = 'block';
+            document.getElementById('contentHeaderRow').style.display = 'flex';
+
+            // Il toggle del filtro titolo compare solo se per questo canale è stato
+            // impostato un filtro; permette di disattivarlo al volo senza dover
+            // entrare nelle impostazioni e cancellare il testo del filtro.
+            const hasTitleFilter = !!(channel.titleFilter && channel.titleFilter.trim() !== '');
+            const filterToggleWrap = document.getElementById('filterToggleWrap');
+            const filterToggleInput = document.getElementById('filterToggleInput');
+            const isFilterActive = channel.titleFilterActive !== false;
+
+            if (hasTitleFilter) {
+                filterToggleWrap.style.display = 'flex';
+                filterToggleWrap.title = `Filtro titolo: "${channel.titleFilter}"`;
+                filterToggleInput.checked = isFilterActive;
+            } else {
+                filterToggleWrap.style.display = 'none';
+            }
+
+            const applyFilter = hasTitleFilter && isFilterActive;
 
             const listContainer = document.getElementById('videoList');
             
@@ -1321,15 +1520,15 @@
 
                     loadedItems = items;
 
-                    // Filtro parola chiave (stesso comportamento del filtro Twitch): se impostato,
-                    // mostra solo i video il cui titolo contiene il testo; se vuoto/rimosso, mostra tutto.
-                    if (channel.titleFilter && channel.titleFilter.trim() !== '') {
+                    // Filtro parola chiave (stesso comportamento del filtro Twitch): se impostato
+                    // e attivo, mostra solo i video il cui titolo contiene il testo.
+                    if (applyFilter) {
                         const needle = channel.titleFilter.trim().toLowerCase();
                         loadedItems = loadedItems.filter(it => (it.title || '').toLowerCase().includes(needle));
                     }
 
                     if (loadedItems.length === 0) {
-                        const emptyMsg = channel.titleFilter ? `Nessun video con filtro "${channel.titleFilter}".` : 'Canale vuoto.';
+                        const emptyMsg = applyFilter ? `Nessun video con filtro "${channel.titleFilter}".` : 'Canale vuoto.';
                         listContainer.innerHTML = `<p style="padding:20px; text-align:center; color:var(--text-secondary);">${emptyMsg}</p>`;
                         return;
                     }
@@ -1343,14 +1542,31 @@
                 }
             } else if (channel.platform === 'twitch') {
                 const username = channel.sourceId.toLowerCase();
+                const effectiveFilter = applyFilter ? channel.titleFilter : '';
                 try {
-                    const videos = await fetchTwitchVideos(username, channel.titleFilter);
-                    renderTwitchVideos(listContainer, videos, channel.titleFilter);
+                    const videos = await fetchTwitchVideos(username, effectiveFilter);
+                    renderTwitchVideos(listContainer, videos, effectiveFilter);
                 } catch (err) {
                     console.error('[Twitch] errore nel recupero VOD:', err);
                     renderTwitchFallback(listContainer, username, err.message);
                 }
             }
+        }
+
+        // Attivazione/disattivazione al volo del filtro titolo per il canale corrente.
+        function onFilterToggleChange() {
+            if (!lastActiveChannelId) return;
+            const chan = channels.find(c => c.id === lastActiveChannelId);
+            if (!chan) return;
+
+            chan.titleFilterActive = document.getElementById('filterToggleInput').checked;
+
+            try {
+                localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
+            } catch (e) {}
+
+            saveChannelsToServer();
+            selectChannel(chan.id);
         }
 
         window.onscroll = function() {
@@ -1449,6 +1665,20 @@
         // ---------------------------------------------------------------
         // GESTIONE RIPRODUTTORI VIDEO E MINUTAGGI (SINCRO FIREBASE)
         // ---------------------------------------------------------------
+
+        // Rete di sicurezza extra: forza gli angoli arrotondati anche sull'iframe
+        // creato dinamicamente da YouTube/Twitch, nel caso il clip-path del wrapper
+        // non basti su qualche browser/webview specifico.
+        function enforceRoundedPlayerCorners() {
+            const wrapper = document.getElementById('playerWrapper');
+            if (!wrapper) return;
+            const iframe = wrapper.querySelector('iframe');
+            if (iframe) {
+                iframe.style.borderRadius = 'var(--radius-player)';
+                iframe.style.display = 'block';
+            }
+        }
+
         function launchVideo(videoId, title, savedStartSeconds = 0, autoplay = 1) {
             if(!apiReady) return;
             currentPlayingVideoId = videoId;
@@ -1490,8 +1720,12 @@
                     'playsinline': 1,
                     'origin': window.location.origin
                 },
-                events: { 'onStateChange': onPlayerStateChange }
+                events: {
+                    'onReady': enforceRoundedPlayerCorners,
+                    'onStateChange': onPlayerStateChange
+                }
             });
+            enforceRoundedPlayerCorners();
         }
 
         function launchTwitchVideo(videoId, title, savedStartSeconds = 0, autoplay = 1) {
@@ -1529,6 +1763,7 @@
             if (typeof Twitch === 'undefined' || !Twitch.Player) {
                 document.getElementById('playerWrapper').innerHTML = `
                     <iframe src="https://player.twitch.tv/?video=${videoId}&parent=${parentDomain}&autoplay=${autoplay ? 'true' : 'false'}&time=${secondsToTwitchTime(startAt)}" allowfullscreen allow="autoplay; fullscreen"></iframe>`;
+                enforceRoundedPlayerCorners();
                 return;
             }
 
@@ -1540,8 +1775,9 @@
                 time: secondsToTwitchTime(startAt),
                 parent: [parentDomain]
             });
+            enforceRoundedPlayerCorners();
 
-            twitchPlayer.addEventListener(Twitch.Player.READY, () => startTwitchTimeTracker());
+            twitchPlayer.addEventListener(Twitch.Player.READY, () => { startTwitchTimeTracker(); enforceRoundedPlayerCorners(); });
             twitchPlayer.addEventListener(Twitch.Player.PLAY, () => startTwitchTimeTracker());
             twitchPlayer.addEventListener(Twitch.Player.PAUSE, () => {
                 stopTwitchTimeTracker();
@@ -1852,20 +2088,20 @@
         }
 
         function toggleView() {
-            const home = document.getElementById('homePanel');
             const settings = document.getElementById('settingsPanel');
-            const icon = document.getElementById('viewIcon');
+            const hamburger = document.getElementById('hamburgerIcon');
+            const btn = document.getElementById('toggleViewBtn');
 
             if (currentView === 'home') {
-                home.classList.remove('active');
                 settings.classList.add('active');
-                icon.innerText = 'close';
+                hamburger.classList.add('open');
+                btn.setAttribute('aria-label', 'Chiudi impostazioni');
                 currentView = 'settings';
                 renderManageChannelsList();
             } else {
                 settings.classList.remove('active');
-                home.classList.add('active');
-                icon.innerText = 'settings';
+                hamburger.classList.remove('open');
+                btn.setAttribute('aria-label', 'Apri impostazioni');
                 currentView = 'home';
             }
         }
