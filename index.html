@@ -211,22 +211,6 @@
             display: block;
         }
 
-        /* Rete di sicurezza definitiva, indipendente da qualunque bug di clipping:
-           dipinge i 4 angoli esterni con il colore di sfondo della pagina, creando
-           l'illusione di angoli arrotondati anche se il video sottostante resta squadrato.
-           Non viene mai toccata dal JS che sostituisce il contenuto del player. */
-        .player-corner-mask {
-            position: absolute;
-            inset: 0;
-            z-index: 5;
-            pointer-events: none;
-            background:
-                radial-gradient(circle at 0 0, transparent var(--radius-player), var(--bg-main) calc(var(--radius-player) + 1px)) top left / 51% 51% no-repeat,
-                radial-gradient(circle at 100% 0, transparent var(--radius-player), var(--bg-main) calc(var(--radius-player) + 1px)) top right / 51% 51% no-repeat,
-                radial-gradient(circle at 0 100%, transparent var(--radius-player), var(--bg-main) calc(var(--radius-player) + 1px)) bottom left / 51% 51% no-repeat,
-                radial-gradient(circle at 100% 100%, transparent var(--radius-player), var(--bg-main) calc(var(--radius-player) + 1px)) bottom right / 51% 51% no-repeat;
-        }
-
         .no-video-placeholder {
             width: 100%;
             height: 100%;
@@ -787,7 +771,6 @@
             <div class="player-wrapper" id="playerWrapper">
                 <div id="ytIframeContainer"></div>
             </div>
-            <div class="player-corner-mask" aria-hidden="true"></div>
         </div>
 
         <h2 class="section-title">I tuoi canali</h2>
