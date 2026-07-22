@@ -179,6 +179,7 @@
         }
 
         .player-section {
+            position: relative;
             margin-top: 16px;
             margin-bottom: 24px;
             box-shadow: 0 12px 32px rgba(0,0,0,0.8);
@@ -195,11 +196,18 @@
             border-radius: var(--radius-player);
             overflow: hidden;
             isolation: isolate;
-            /* Il clip-path è il fix affidabile per il bug noto di Chrome/Safari per cui
+            transform: translateZ(0);
+            -webkit-transform: translateZ(0);
+            will-change: transform;
+            /* Il clip-path è il fix per il bug noto di Chrome/Safari desktop per cui
                overflow:hidden + border-radius non riescono a "tagliare" l'iframe video
                una volta che questo viene promosso a layer video hardware-accelerato. */
             clip-path: inset(0 round var(--radius-player));
             -webkit-clip-path: inset(0 round var(--radius-player));
+            /* Forza la modalità di compositing "mask" invece del semplice clip via overflow:
+               su alcune WebView Android datate è questo che fa davvero la differenza. */
+            -webkit-mask-image: -webkit-radial-gradient(circle, #fff, #fff);
+            mask-image: radial-gradient(circle, #fff, #fff);
         }
 
         .player-wrapper iframe {
@@ -208,6 +216,22 @@
             border: none;
             border-radius: var(--radius-player);
             display: block;
+        }
+
+        /* Rete di sicurezza definitiva, indipendente da qualunque bug di clipping:
+           dipinge i 4 angoli esterni con il colore di sfondo della pagina, creando
+           l'illusione di angoli arrotondati anche se il video sottostante resta squadrato.
+           Non viene mai toccata dal JS che sostituisce il contenuto del player. */
+        .player-corner-mask {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            pointer-events: none;
+            background:
+                radial-gradient(circle at 0 0, transparent var(--radius-player), var(--bg-main) calc(var(--radius-player) + 1px)) top left / 51% 51% no-repeat,
+                radial-gradient(circle at 100% 0, transparent var(--radius-player), var(--bg-main) calc(var(--radius-player) + 1px)) top right / 51% 51% no-repeat,
+                radial-gradient(circle at 0 100%, transparent var(--radius-player), var(--bg-main) calc(var(--radius-player) + 1px)) bottom left / 51% 51% no-repeat,
+                radial-gradient(circle at 100% 100%, transparent var(--radius-player), var(--bg-main) calc(var(--radius-player) + 1px)) bottom right / 51% 51% no-repeat;
         }
 
         .no-video-placeholder {
@@ -321,6 +345,10 @@
 
         .mini-switch input:checked ~ .track {
             background-color: var(--yt-red);
+        }
+
+        .mini-switch.switch-twitch input:checked ~ .track {
+            background-color: var(--twitch-purple);
         }
 
         .mini-switch input:checked ~ .track .thumb {
@@ -766,6 +794,7 @@
             <div class="player-wrapper" id="playerWrapper">
                 <div id="ytIframeContainer"></div>
             </div>
+            <div class="player-corner-mask" aria-hidden="true"></div>
         </div>
 
         <h2 class="section-title">I tuoi canali</h2>
@@ -780,7 +809,7 @@
                     <i class="material-icons-round">filter_alt</i>
                     Filtro
                 </span>
-                <span class="mini-switch">
+                <span class="mini-switch" id="filterToggleSwitch">
                     <input type="checkbox" id="filterToggleInput" onchange="onFilterToggleChange()">
                     <span class="track"><span class="thumb"></span></span>
                 </span>
@@ -1486,7 +1515,10 @@
             const hasTitleFilter = !!(channel.titleFilter && channel.titleFilter.trim() !== '');
             const filterToggleWrap = document.getElementById('filterToggleWrap');
             const filterToggleInput = document.getElementById('filterToggleInput');
+            const filterToggleSwitch = document.getElementById('filterToggleSwitch');
             const isFilterActive = channel.titleFilterActive !== false;
+
+            filterToggleSwitch.classList.toggle('switch-twitch', channel.platform === 'twitch');
 
             if (hasTitleFilter) {
                 filterToggleWrap.style.display = 'flex';
