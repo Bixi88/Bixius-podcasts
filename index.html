@@ -893,6 +893,8 @@
         // URL del Worker Cloudflare che sostituisce Data API + proxy CORS pubblici.
         // Sostituisci con l'URL reale dopo il deploy (es. https://bixius-youtube-proxy.<tuo-account>.workers.dev)
         const YT_WORKER_URL = "https://bixius-youtube-proxy.bix20252025.workers.dev";
+        // Video/shorts sotto questa durata vengono esclusi dalle liste (sia YouTube che Twitch).
+        const MIN_VIDEO_SECONDS = 300; // 5 minuti
 
         const firebaseConfig = {
             apiKey: "AIzaSyAr7IqKkP9DdMxmD4wv0uULGTJC4VRm1ws",
@@ -1451,7 +1453,7 @@
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 8000);
-                const res = await fetch(`${YT_WORKER_URL}/youtube?channel_id=${encodeURIComponent(channelId)}`, {
+                const res = await fetch(`${YT_WORKER_URL}/youtube?channel_id=${encodeURIComponent(channelId)}&min_seconds=${MIN_VIDEO_SECONDS}`, {
                     cache: 'no-store', signal: controller.signal
                 });
                 clearTimeout(timeoutId);
@@ -1517,12 +1519,14 @@
                 let durationText = "";
                 const durationElements = entry.getElementsByTagName("media:duration");
                 if (durationElements.length > 0) {
-                    seconds = parseInt(durationElements[0].textContent, 10) || 0;
+                    // Il feed di YouTube mette la durata in un attributo ("seconds="...""),
+                    // non come testo dentro al tag: <media:duration seconds="740"/>
+                    seconds = parseInt(durationElements[0].getAttribute('seconds'), 10) || 0;
                     const mins = Math.floor(seconds / 60);
                     durationText = mins > 0 ? `${mins} min` : `${seconds} s`;
                 }
 
-                if ((seconds > 0 && seconds <= 65) || title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
+                if ((seconds > 0 && seconds <= MIN_VIDEO_SECONDS) || title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
                     continue;
                 }
                 items.push({ title, videoId, durationText, durationSeconds: seconds });
@@ -1678,6 +1682,9 @@
 
             const edges = payload.data.user.videos?.edges || [];
             let videos = edges.map(edge => edge.node).filter(Boolean);
+
+            // Scarta i video/clip troppo brevi, come già avviene per YouTube.
+            videos = videos.filter(v => !v.lengthSeconds || v.lengthSeconds >= MIN_VIDEO_SECONDS);
 
             if (titleFilter && titleFilter.trim() !== '') {
                 const needle = titleFilter.trim().toLowerCase();
