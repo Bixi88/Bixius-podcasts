@@ -461,6 +461,15 @@
             margin-top: 12px;
         }
 
+        /* Attenua lo "scatto" quando il contenuto reale sostituisce di colpo
+           gli skeleton placeholder (spesso subito dopo l'animazione di
+           swipe fra canali): invece di comparire di netto, il nuovo
+           contenuto si dissolve dolcemente. */
+        @keyframes videoListFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
         .video-card {
             display: flex;
             gap: 12px;
@@ -1192,11 +1201,19 @@
         // istantaneamente (usato al primo render, senza animazioni inutili).
         function scrollActiveChannelIntoView(smooth = true) {
             const activeItem = document.querySelector('.channel-item.active');
-            if (!activeItem) return;
-            activeItem.scrollIntoView({
-                behavior: smooth ? 'smooth' : 'auto',
-                inline: 'center',
-                block: 'nearest'
+            const wrapper = document.getElementById('channelsSliderWrapper');
+            if (!activeItem || !wrapper) return;
+            // Scorrimento calcolato a mano e limitato al solo asse
+            // orizzontale del wrapper: scrollIntoView (anche con
+            // block:'nearest') può in alcuni browser trascinare con sé
+            // anche uno scroll verticale della pagina se l'elemento è
+            // parzialmente coperto dalla top-bar sticky, causando quel
+            // piccolo spostamento indesiderato del video in alto durante i
+            // cambi canale. Così invece la pagina resta ferma.
+            const targetLeft = activeItem.offsetLeft - (wrapper.clientWidth - activeItem.clientWidth) / 2;
+            wrapper.scrollTo({
+                left: Math.max(0, targetLeft),
+                behavior: smooth ? 'smooth' : 'auto'
             });
         }
 
@@ -1252,6 +1269,13 @@
         // continuare a cercare un canale successivo che non esiste. Lo
         // scroll verticale normale della lista resta intatto: la direzione
         // del gesto viene decisa solo dopo un piccolo movimento iniziale.
+        //
+        // Il pannello impostazioni, una volta aperto, si chiude anche con
+        // uno swipe da sinistra verso destra al suo interno (vedi
+        // setupSettingsPanelSwipeClose più sotto): chiudendolo così si
+        // ritrova l'ultimo canale a destra, e continuando a swipare verso
+        // destra si scorre a ritroso fra tutti i canali, esattamente come
+        // se non si fosse mai passati dalle impostazioni.
         (function setupContentSwipeChannelNav() {
             const section = document.getElementById('contentSection');
             const settings = document.getElementById('settingsPanel');
@@ -1424,6 +1448,152 @@
                 }
                 dragMode = null;
             }, { passive: true });
+        })();
+
+        // Swipe da sinistra verso destra sul pannello impostazioni stesso:
+        // lo chiude (segue il dito, come lo si sta "spingendo via" verso
+        // destra) e riporta alla home mostrando l'ultimo canale a destra -
+        // esattamente come se si fosse arrivati alle impostazioni scorrendo
+        // in fondo alla lista canali. Da lì, continuando a swipare verso
+        // destra sul contenuto, si scorre normalmente a ritroso fra tutti
+        // gli altri canali (gestito già da setupContentSwipeChannelNav).
+        (function setupSettingsPanelSwipeClose() {
+            const settings = document.getElementById('settingsPanel');
+            const section = document.getElementById('contentSection');
+            if (!settings) return;
+
+            const SWIPE_MIN_DISTANCE = 60;
+            const SWIPE_MAX_VERTICAL = 60;
+            const SWIPE_MAX_DURATION = 600;
+            const CLOSE_RATIO = 0.35;
+            const SLIDE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+            const SLIDE_DURATION_MS = 320;
+
+            let startX = 0, startY = 0, startTime = 0;
+            let tracking = false, decided = false, isClosingSwipe = false;
+            let panelWidth = 0;
+
+            function animateTo(el, toPx, onDone) {
+                el.style.transition = `transform ${SLIDE_DURATION_MS}ms ${SLIDE_EASING}`;
+                void el.offsetWidth;
+                requestAnimationFrame(() => {
+                    el.style.transform = `translateX(${toPx}px)`;
+                });
+                let done = false;
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    el.removeEventListener('transitionend', finish);
+                    clearTimeout(fallback);
+                    if (onDone) onDone();
+                };
+                el.addEventListener('transitionend', finish);
+                const fallback = setTimeout(finish, SLIDE_DURATION_MS + 60);
+            }
+
+            settings.addEventListener('touchstart', (e) => {
+                if (e.touches.length !== 1) return;
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                startTime = Date.now();
+                tracking = true;
+                decided = false;
+                isClosingSwipe = false;
+                panelWidth = settings.getBoundingClientRect().width || window.innerWidth;
+            }, { passive: true });
+
+            settings.addEventListener('touchmove', (e) => {
+                if (!tracking || e.touches.length !== 1) return;
+                const dx = e.touches[0].clientX - startX;
+                const dy = e.touches[0].clientY - startY;
+
+                if (!decided && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+                    decided = true;
+                    // Solo lo swipe verso destra chiude il pannello; verso
+                    // sinistra o lo scroll verticale interno restano intatti.
+                    isClosingSwipe = dx > 0 && Math.abs(dx) > Math.abs(dy);
+                    if (isClosingSwipe) settings.style.transition = 'none';
+                }
+
+                if (!isClosingSwipe) return;
+                e.preventDefault();
+                const dragDistance = Math.min(Math.max(dx, 0), panelWidth);
+                settings.style.transform = `translateX(${dragDistance}px)`;
+            }, { passive: false });
+
+            settings.addEventListener('touchend', (e) => {
+                if (!tracking) return;
+                tracking = false;
+                if (!isClosingSwipe) return;
+
+                const touch = e.changedTouches[0];
+                const dx = touch.clientX - startX;
+                const dy = touch.clientY - startY;
+                const elapsed = Date.now() - startTime;
+                const validSwipe = dx >= SWIPE_MIN_DISTANCE && Math.abs(dy) <= SWIPE_MAX_VERTICAL && elapsed <= SWIPE_MAX_DURATION;
+                const dragDistance = Math.min(Math.max(dx, 0), panelWidth);
+                const closeEnough = dragDistance >= panelWidth * CLOSE_RATIO || validSwipe;
+
+                if (closeEnough) {
+                    animateTo(settings, panelWidth, () => {
+                        settings.style.transition = '';
+                        settings.style.transform = '';
+                        closeSettingsPanel();
+                        // Dopo la chiusura, il canale attivo diventa l'ultimo
+                        // della lista - da lì si può proseguire a ritroso.
+                        if (channels && channels.length > 0) {
+                            const lastChannel = channels[channels.length - 1];
+                            if (lastChannel && lastChannel.id !== lastActiveChannelId) {
+                                selectChannel(lastChannel.id);
+                            }
+                        }
+                        if (section) {
+                            section.style.transition = 'none';
+                            section.style.transform = '';
+                        }
+                    });
+                } else {
+                    animateTo(settings, 0, () => {
+                        settings.style.transition = '';
+                        settings.style.transform = '';
+                    });
+                }
+                isClosingSwipe = false;
+            }, { passive: true });
+
+            settings.addEventListener('touchcancel', () => {
+                if (!tracking) return;
+                tracking = false;
+                if (isClosingSwipe) {
+                    animateTo(settings, 0, () => {
+                        settings.style.transition = '';
+                        settings.style.transform = '';
+                    });
+                }
+                isClosingSwipe = false;
+            }, { passive: true });
+        })();
+
+        // Ogni volta che il contenuto della lista video cambia (skeleton di
+        // caricamento -> video reali, cambio canale, filtro, ecc.) lo si
+        // fa comparire con una breve dissolvenza invece che di scatto: è
+        // spesso questo cambio improvviso, subito dopo l'animazione di
+        // swipe fra canali, a dare la sensazione di "scatto" fastidioso.
+        (function setupVideoListFadeOnChange() {
+            const listContainer = document.getElementById('videoList');
+            if (!listContainer) return;
+
+            let fading = false;
+            const observer = new MutationObserver(() => {
+                if (fading) return;
+                fading = true;
+                listContainer.style.animation = 'none';
+                void listContainer.offsetWidth; // forza il reflow per poter riavviare l'animazione
+                listContainer.style.animation = 'videoListFadeIn 0.22s ease';
+                setTimeout(() => { fading = false; }, 230);
+            });
+
+            observer.observe(listContainer, { childList: true });
         })();
 
         function renderManageChannelsList() {
