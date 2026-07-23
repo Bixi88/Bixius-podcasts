@@ -915,6 +915,7 @@
         // ---------------------------------------------------------------
         let channels = [];
         let timestampsCache = {};
+        let videoDurationsCache = {};
         let completedVideos = [];
         let lastWatchedData = null;
         let lastActiveChannelId = null;
@@ -986,6 +987,7 @@
             }
             
             timestampsCache = serverData.history || {};
+            videoDurationsCache = serverData.durations || {};
             completedVideos = serverData.completed ? Object.values(serverData.completed) : [];
             lastWatchedData = serverData.lastWatched || null;
             lastActiveChannelId = serverData.config?.lastActiveChannelId || null;
@@ -994,6 +996,7 @@
             try {
                 localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
                 localStorage.setItem('bixius_video_timestamps', JSON.stringify(timestampsCache));
+                localStorage.setItem('bixius_video_durations', JSON.stringify(videoDurationsCache));
                 localStorage.setItem('bixius_video_completati', JSON.stringify(completedVideos));
                 if (lastWatchedData) localStorage.setItem('bixius_last_video_data', JSON.stringify(lastWatchedData));
             } catch(e){}
@@ -1017,6 +1020,7 @@
                 channels = JSON.parse(localStorage.getItem('bixius_user_channels')) || [];
                 channels = channels.filter(c => c && typeof c === 'object' && c.id && c.name);
                 timestampsCache = JSON.parse(localStorage.getItem('bixius_video_timestamps')) || {};
+                videoDurationsCache = JSON.parse(localStorage.getItem('bixius_video_durations')) || {};
                 completedVideos = JSON.parse(localStorage.getItem('bixius_video_completati')) || [];
                 lastWatchedData = JSON.parse(localStorage.getItem('bixius_last_video_data')) || null;
             } catch(e){}
@@ -1386,7 +1390,7 @@
                     metaHtml = `<div class="v-meta">Durata: ${item.durationText}</div>`;
                 }
 
-                const totalSeconds = item.durationSeconds || parseDurationTextToSeconds(item.durationText);
+                const totalSeconds = videoDurationsCache[item.videoId] || item.durationSeconds || parseDurationTextToSeconds(item.durationText);
                 const savedSeconds = timestampsCache[item.videoId] || 0;
                 const progressHtml = buildProgressBarHtml(savedSeconds, totalSeconds, isCompleted);
 
@@ -1747,6 +1751,23 @@
             }
         }
 
+        // Il feed RSS/Worker di YouTube spesso non riporta la durata dei video, quindi
+        // per calcolare la barra di avanzamento sfruttiamo il player stesso: appena è
+        // pronto, ne leggiamo la durata reale e la mettiamo in cache (locale + cloud).
+        // Dato che la barra si mostra solo per video già aperti almeno una volta (quelli
+        // con un minutaggio salvato), la durata sarà sempre disponibile quando serve.
+        function captureYoutubeDuration(videoId) {
+            if (!ytPlayer || typeof ytPlayer.getDuration !== 'function') return;
+            const dur = Math.round(ytPlayer.getDuration() || 0);
+            if (dur > 0 && videoDurationsCache[videoId] !== dur) {
+                videoDurationsCache[videoId] = dur;
+                try {
+                    localStorage.setItem('bixius_video_durations', JSON.stringify(videoDurationsCache));
+                } catch (e) {}
+                rootRef.child('durations').update({ [videoId]: dur });
+            }
+        }
+
         function launchVideo(videoId, title, savedStartSeconds = 0, autoplay = 1) {
             if(!apiReady) return;
             currentPlayingVideoId = videoId;
@@ -1789,7 +1810,7 @@
                     'origin': window.location.origin
                 },
                 events: {
-                    'onReady': enforceRoundedPlayerCorners,
+                    'onReady': function() { enforceRoundedPlayerCorners(); captureYoutubeDuration(videoId); },
                     'onStateChange': onPlayerStateChange
                 }
             });
@@ -2113,16 +2134,19 @@
 
         function executeResetOnlyCache() {
             timestampsCache = {};
+            videoDurationsCache = {};
             completedVideos = [];
             lastWatchedData = null;
             
             try {
                 localStorage.removeItem('bixius_video_timestamps');
+                localStorage.removeItem('bixius_video_durations');
                 localStorage.removeItem('bixius_video_completati');
                 localStorage.removeItem('bixius_last_video_data');
             } catch(e){}
 
             rootRef.child('history').remove();
+            rootRef.child('durations').remove();
             rootRef.child('completed').remove();
             rootRef.child('lastWatched').remove();
             
@@ -2133,6 +2157,7 @@
         function executeClearAll() {
             channels = [];
             timestampsCache = {};
+            videoDurationsCache = {};
             completedVideos = [];
             lastWatchedData = null;
             lastActiveChannelId = null;
