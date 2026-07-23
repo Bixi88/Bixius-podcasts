@@ -801,7 +801,7 @@
         </div>
 
         <h2 class="section-title">I tuoi canali</h2>
-        <div class="channels-slider-wrapper">
+        <div class="channels-slider-wrapper" id="channelsSliderWrapper">
             <div class="channels-slider" id="channelsSlider"></div>
         </div>
 
@@ -1166,7 +1166,52 @@
                 
                 slider.appendChild(item);
             });
+
+            // Ogni volta che la striscia viene ridisegnata, assicura che l'avatar
+            // del canale attivo sia visibile (es. dopo un refresh dei canali).
+            scrollActiveChannelIntoView(false);
         }
+
+        // Riporta in vista, scorrendo la striscia orizzontale, l'avatar del
+        // canale attualmente attivo (quello di cui si sta guardando la lista
+        // video). smooth=true anima lo scorrimento (usato quando l'utente
+        // seleziona esplicitamente un canale); smooth=false lo posiziona
+        // istantaneamente (usato al primo render, senza animazioni inutili).
+        function scrollActiveChannelIntoView(smooth = true) {
+            const activeItem = document.querySelector('.channel-item.active');
+            if (!activeItem) return;
+            activeItem.scrollIntoView({
+                behavior: smooth ? 'smooth' : 'auto',
+                inline: 'center',
+                block: 'nearest'
+            });
+        }
+
+        // Se l'utente scorre/swipa manualmente la striscia dei canali e la
+        // lascia ferma con l'avatar attivo fuori dalla vista, dopo una breve
+        // pausa la striscia si riallinea da sola mostrando di nuovo l'avatar
+        // del canale la cui lista si sta guardando.
+        (function setupChannelStripAutoReturn() {
+            const wrapper = document.getElementById('channelsSliderWrapper');
+            if (!wrapper) return;
+            let returnTimer = null;
+
+            wrapper.addEventListener('scroll', () => {
+                if (returnTimer) clearTimeout(returnTimer);
+                returnTimer = setTimeout(() => {
+                    const activeItem = document.querySelector('.channel-item.active');
+                    if (!activeItem) return;
+
+                    const wrapperRect = wrapper.getBoundingClientRect();
+                    const itemRect = activeItem.getBoundingClientRect();
+                    const isFullyVisible = itemRect.left >= wrapperRect.left && itemRect.right <= wrapperRect.right;
+
+                    if (!isFullyVisible) {
+                        scrollActiveChannelIntoView(true);
+                    }
+                }, 900);
+            }, { passive: true });
+        })();
 
         function renderManageChannelsList() {
             const list = document.getElementById('manageChannelsList');
@@ -1538,6 +1583,7 @@
             document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
             const currentTab = document.getElementById(`app-chan-${id}`);
             if(currentTab) currentTab.classList.add('active');
+            scrollActiveChannelIntoView();
 
             const channel = channels.find(c => c.id === id);
             if(!channel) return;
