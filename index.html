@@ -962,8 +962,101 @@
         let twitchTimeTrackerInterval = null;
         let initialResumeDone = false;
 
+        // Cache dei video per canale (YouTube/Twitch), usata per rendere gli
+        // swipe fra canali istantanei e senza scatti: appena un canale viene
+        // caricato una volta, il risultato resta qui (e su localStorage,
+        // quindi sopravvive anche chiudendo l'app) pronto per essere
+        // mostrato subito la volta successiva, senza passare dagli
+        // skeleton. Dopo CHANNEL_CACHE_TTL_MS viene comunque ricontrollato
+        // in background (vedi refreshChannelContent/prefetchAllChannelsInBackground).
+        let channelContentCache = {}; // { [channelId]: { platform, rawItems, fetchedAt } }
+        const CHANNEL_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minuti
+        let backgroundPrefetchScheduled = false;
+        try {
+            channelContentCache = JSON.parse(localStorage.getItem('bixius_channel_content_cache')) || {};
+        } catch (e) { channelContentCache = {}; }
+
         const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
         const TWITCH_VOD_QUERY_HASH = '67004f7881e65c297936f32c75246470629557a393788fb5a69d6d9a25a8fd5f';
+
+        // ---------------------------------------------------------------
+        // CACHE CONTENUTI CANALE (per swipe fluido senza scatti)
+        // ---------------------------------------------------------------
+        function saveChannelContentCacheToStorage() {
+            try {
+                localStorage.setItem('bixius_channel_content_cache', JSON.stringify(channelContentCache));
+            } catch (e) {}
+        }
+
+        function getCachedChannelContent(id) {
+            const entry = channelContentCache[id];
+            if (!entry || !Array.isArray(entry.rawItems)) return null;
+            return entry;
+        }
+
+        function setCachedChannelContent(id, platform, rawItems) {
+            channelContentCache[id] = { platform, rawItems, fetchedAt: Date.now() };
+            saveChannelContentCacheToStorage();
+        }
+
+        function isCacheStale(entry) {
+            if (!entry) return true;
+            return (Date.now() - entry.fetchedAt) > CHANNEL_CACHE_TTL_MS;
+        }
+
+        // Programma il precaricamento in sordina di tutti i canali non ancora
+        // in cache (o scaduti), da eseguire quando il browser è "libero" e
+        // comunque solo dopo che il canale iniziale è già stato mostrato, per
+        // non competere con lui per la banda.
+        function scheduleBackgroundPrefetch() {
+            if (backgroundPrefetchScheduled) return;
+            backgroundPrefetchScheduled = true;
+            const run = () => prefetchAllChannelsInBackground();
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(run, { timeout: 4000 });
+            } else {
+                setTimeout(run, 2500);
+            }
+        }
+
+        // Scarica uno alla volta (con una piccola pausa fra un canale e
+        // l'altro, per non intasare la rete) i video di tutti i canali che
+        // non hanno ancora una cache valida. Se nel frattempo l'utente
+        // arriva su uno di questi canali mentre viene precaricato, la lista
+        // visibile viene aggiornata con la consueta dissolvenza (mai con lo
+        // skeleton).
+        async function prefetchAllChannelsInBackground() {
+            for (const channel of channels) {
+                if (!channel || !channel.id) continue;
+                const cached = getCachedChannelContent(channel.id);
+                if (cached && !isCacheStale(cached)) continue;
+
+                try {
+                    let rawItems;
+                    if (channel.platform === 'youtube_channel') {
+                        rawItems = await fetchYoutubeChannelViaWorker(channel.sourceId);
+                    } else if (channel.platform === 'twitch') {
+                        rawItems = await fetchTwitchVideos(channel.sourceId.toLowerCase());
+                    } else {
+                        continue;
+                    }
+                    setCachedChannelContent(channel.id, channel.platform, rawItems);
+
+                    if (lastActiveChannelId === channel.id) {
+                        const listContainer = document.getElementById('videoList');
+                        if (listContainer) {
+                            const hasTitleFilter = !!(channel.titleFilter && channel.titleFilter.trim() !== '');
+                            const applyFilter = hasTitleFilter && channel.titleFilterActive !== false;
+                            renderChannelContent(channel, rawItems, applyFilter, listContainer);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Precaricamento in background fallito per', channel.name, err);
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 400));
+            }
+        }
 
         // ---------------------------------------------------------------
         // INIZIALIZZAZIONE API PLAYER ESTERNI
@@ -1034,6 +1127,7 @@
             } else {
                 document.getElementById('videoList').innerHTML = `<p style="padding: 24px 4px; color: var(--text-secondary); text-align: center; font-size: 14px;">Nessun canale selezionato. Scegli un canale in alto.</p>`;
             }
+            scheduleBackgroundPrefetch();
 
             firebaseReady = true;
             checkInitialDataReady();
@@ -1049,6 +1143,7 @@
                 lastWatchedData = JSON.parse(localStorage.getItem('bixius_last_video_data')) || null;
             } catch(e){}
             renderAppChannels();
+            scheduleBackgroundPrefetch();
             firebaseReady = true;
             checkInitialDataReady();
         });
@@ -1999,58 +2094,94 @@
             }
 
             const applyFilter = hasTitleFilter && isFilterActive;
-
             const listContainer = document.getElementById('videoList');
-            
-            listContainer.innerHTML = `
-                <div class="skeleton-card"></div>
-                <div class="skeleton-card"></div>
-            `;
-            
-            loadedItems = [];
-            currentVisibleCount = 10;
-            displayedVideoUrls.clear();
 
-            if (channel.platform === 'youtube_channel') {
-                try {
-                    const items = await fetchYoutubeChannelViaWorker(channel.sourceId);
+            const cached = getCachedChannelContent(id);
 
-                    if (items.length === 0) {
-                        listContainer.innerHTML = '<p style="padding:20px; text-align:center; color:var(--text-secondary);">Canale vuoto.</p>';
-                        return;
-                    }
-
-                    loadedItems = items;
-
-                    // Filtro parola chiave (stesso comportamento del filtro Twitch): se impostato
-                    // e attivo, mostra solo i video il cui titolo contiene il testo.
-                    if (applyFilter) {
-                        const needle = channel.titleFilter.trim().toLowerCase();
-                        loadedItems = loadedItems.filter(it => (it.title || '').toLowerCase().includes(needle));
-                    }
-
-                    if (loadedItems.length === 0) {
-                        const emptyMsg = applyFilter ? `Nessun video con filtro "${channel.titleFilter}".` : 'Canale vuoto.';
-                        listContainer.innerHTML = `<p style="padding:20px; text-align:center; color:var(--text-secondary);">${emptyMsg}</p>`;
-                        return;
-                    }
-                    
-                    listContainer.innerHTML = '';
-                    displayItems();
-
-                } catch (err) {
-                    console.error(err);
-                    listContainer.innerHTML = `<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore caricamento video YouTube: ${err.message || err}</p>`;
+            if (cached) {
+                // Dati già in cache: li mostriamo subito, senza skeleton e
+                // senza attesa di rete - è questo che rende lo swipe fluido
+                // e senza scatti. Se la cache è scaduta, la aggiorniamo
+                // comunque in sordina in background.
+                renderChannelContent(channel, cached.rawItems, applyFilter, listContainer);
+                if (isCacheStale(cached)) {
+                    refreshChannelContent(channel, applyFilter, listContainer, true);
                 }
+            } else {
+                listContainer.innerHTML = `
+                    <div class="skeleton-card"></div>
+                    <div class="skeleton-card"></div>
+                `;
+                await refreshChannelContent(channel, applyFilter, listContainer, false);
+            }
+        }
+
+        // Renderizza il contenuto (già scaricato, da rete o da cache) di un
+        // canale nella lista video, applicando l'eventuale filtro titolo.
+        function renderChannelContent(channel, rawItems, applyFilter, listContainer) {
+            if (channel.platform === 'youtube_channel') {
+                let items = rawItems;
+                if (applyFilter) {
+                    const needle = channel.titleFilter.trim().toLowerCase();
+                    items = items.filter(it => (it.title || '').toLowerCase().includes(needle));
+                }
+
+                loadedItems = items;
+                currentVisibleCount = 10;
+                displayedVideoUrls.clear();
+
+                if (items.length === 0) {
+                    const emptyMsg = applyFilter ? `Nessun video con filtro "${channel.titleFilter}".` : 'Canale vuoto.';
+                    listContainer.innerHTML = `<p style="padding:20px; text-align:center; color:var(--text-secondary);">${emptyMsg}</p>`;
+                    return;
+                }
+
+                listContainer.innerHTML = '';
+                displayItems();
             } else if (channel.platform === 'twitch') {
-                const username = channel.sourceId.toLowerCase();
                 const effectiveFilter = applyFilter ? channel.titleFilter : '';
-                try {
-                    const videos = await fetchTwitchVideos(username, effectiveFilter);
-                    renderTwitchVideos(listContainer, videos, effectiveFilter);
-                } catch (err) {
-                    console.error('[Twitch] errore nel recupero VOD:', err);
-                    renderTwitchFallback(listContainer, username, err.message);
+                let videos = rawItems;
+                if (effectiveFilter) {
+                    const needle = effectiveFilter.trim().toLowerCase();
+                    videos = videos.filter(v => (v.title || '').toLowerCase().includes(needle));
+                }
+                renderTwitchVideos(listContainer, videos, effectiveFilter);
+            }
+        }
+
+        // Scarica i video reali di un canale (rete), li mette in cache e li
+        // mostra - a meno che l'utente non sia nel frattempo passato a un
+        // altro canale (in tal caso l'aggiornamento resta comunque salvato
+        // in cache per la prossima volta, ma non tocca la lista visibile).
+        // Con silent=true (refresh in background di una cache scaduta) un
+        // eventuale errore di rete non mostra nulla: resta visibile quanto
+        // già in cache, così l'utente non vede mai un errore per un
+        // aggiornamento che stava avvenendo senza che se ne accorgesse.
+        async function refreshChannelContent(channel, applyFilter, listContainer, silent) {
+            try {
+                let rawItems;
+                if (channel.platform === 'youtube_channel') {
+                    rawItems = await fetchYoutubeChannelViaWorker(channel.sourceId);
+                } else if (channel.platform === 'twitch') {
+                    rawItems = await fetchTwitchVideos(channel.sourceId.toLowerCase());
+                } else {
+                    return;
+                }
+
+                setCachedChannelContent(channel.id, channel.platform, rawItems);
+
+                if (lastActiveChannelId !== channel.id) return;
+                renderChannelContent(channel, rawItems, applyFilter, listContainer);
+
+            } catch (err) {
+                console.error(err);
+                if (silent) return;
+                if (lastActiveChannelId !== channel.id) return;
+
+                if (channel.platform === 'twitch') {
+                    renderTwitchFallback(listContainer, channel.sourceId.toLowerCase(), err.message);
+                } else {
+                    listContainer.innerHTML = `<p style="padding:20px; text-align:center; color:var(--text-secondary);">Errore caricamento video YouTube: ${err.message || err}</p>`;
                 }
             }
         }
@@ -2084,7 +2215,11 @@
         // ---------------------------------------------------------------
         // LOGICHE RECUPERO API GRAPHQL TWITCH
         // ---------------------------------------------------------------
-        async function fetchTwitchVideos(username, titleFilter) {
+        // Restituisce i VOD grezzi (solo filtro di durata minima applicato) così da
+        // poter essere messi in cache e riutilizzati per qualunque filtro titolo
+        // venga poi selezionato/attivato dall'utente, senza dover rifare la
+        // richiesta di rete ogni volta.
+        async function fetchTwitchVideos(username) {
             const requestBody = [{
                 operationName: 'FilterableVideoTower_Videos',
                 variables: {
@@ -2115,10 +2250,6 @@
             // Scarta i video/clip troppo brevi, come già avviene per YouTube.
             videos = videos.filter(v => !v.lengthSeconds || v.lengthSeconds >= MIN_VIDEO_SECONDS);
 
-            if (titleFilter && titleFilter.trim() !== '') {
-                const needle = titleFilter.trim().toLowerCase();
-                videos = videos.filter(v => (v.title || '').toLowerCase().includes(needle));
-            }
             return videos;
         }
 
@@ -2538,6 +2669,10 @@
                 try {
                     localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
                 } catch(e){}
+                if (channelContentCache[pendingActionTargetId]) {
+                    delete channelContentCache[pendingActionTargetId];
+                    saveChannelContentCacheToStorage();
+                }
                 saveChannelsToServer();
                 renderAppChannels();
                 renderManageChannelsList();
@@ -2598,6 +2733,7 @@
             completedVideos = [];
             lastWatchedData = null;
             lastActiveChannelId = null;
+            channelContentCache = {};
 
             try {
                 localStorage.clear();
