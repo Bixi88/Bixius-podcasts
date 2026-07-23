@@ -179,14 +179,25 @@
             padding-top: 20px;
             padding-bottom: 90px;
             transform: translateX(100%);
-            transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+            transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+                        visibility 0s linear 0.38s;
             box-shadow: -12px 0 40px rgba(0, 0, 0, 0.55);
             pointer-events: none;
+            /* Fix bug desktop: su alcuni browser (Windows a schermo intero) il
+               solo translateX(100%) poteva lasciare il pannello visivamente
+               "a vista" oltre il bordo. La visibility lo nasconde davvero
+               indipendentemente dal calcolo del transform, e lo scatto a
+               "visible" avviene solo a transizione conclusa così l'apertura
+               resta animata. */
+            visibility: hidden;
         }
 
         #settingsPanel.active {
             transform: translateX(0);
             pointer-events: auto;
+            visibility: visible;
+            transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+                        visibility 0s linear 0s;
         }
 
         .player-section {
@@ -1232,21 +1243,71 @@
         }
 
         // Swipe orizzontale in qualsiasi punto della zona contenuti (header +
-        // lista video): scorrendo verso sinistra si passa al canale
-        // successivo, verso destra al precedente. Lo scroll verticale
-        // normale della lista resta intatto: la direzione del gesto viene
-        // decisa solo dopo un piccolo movimento iniziale, e si blocca lo
-        // scroll di pagina soltanto se il gesto è chiaramente orizzontale.
+        // lista video): il blocco intero segue il dito mentre si trascina,
+        // proprio come i video al suo interno. Scorrendo verso sinistra si
+        // passa al canale successivo, verso destra al precedente - ma senza
+        // loop: sul primo canale non si può andare oltre (solo un piccolo
+        // "rimbalzo" elastico) e sull'ultimo, uno swipe ulteriore verso
+        // sinistra trascina in apertura il pannello impostazioni invece di
+        // continuare a cercare un canale successivo che non esiste. Lo
+        // scroll verticale normale della lista resta intatto: la direzione
+        // del gesto viene decisa solo dopo un piccolo movimento iniziale.
         (function setupContentSwipeChannelNav() {
             const section = document.getElementById('contentSection');
-            if (!section) return;
+            const settings = document.getElementById('settingsPanel');
+            if (!section || !settings) return;
 
             const SWIPE_MIN_DISTANCE = 60; // px orizzontali minimi per contare come swipe
             const SWIPE_MAX_VERTICAL = 60; // px verticali massimi tollerati
             const SWIPE_MAX_DURATION = 600; // ms, per un gesto rapido e fluido
+            const SETTINGS_OPEN_RATIO = 0.35; // frazione del pannello da trascinare per aprirlo
+            const SLIDE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+            const SLIDE_DURATION_MS = 320;
 
             let startX = 0, startY = 0, startTime = 0;
             let tracking = false, decided = false, isHorizontalSwipe = false;
+            let dragMode = null; // 'content' | 'rubber' | 'settings'
+            let sectionWidth = 0;
+
+            function currentChannelIndex() {
+                if (!channels || channels.length === 0) return -1;
+                return channels.findIndex(c => c.id === lastActiveChannelId);
+            }
+
+            // Anima la trasformazione di un elemento verso una posizione finale
+            // e richiama onDone a transizione conclusa (con un fallback a
+            // tempo nel caso raro in cui transitionend non scatti).
+            function animateTo(el, toPx, onDone) {
+                el.style.transition = `transform ${SLIDE_DURATION_MS}ms ${SLIDE_EASING}`;
+                void el.offsetWidth; // forza il reflow prima del cambio, per garantire l'animazione
+                requestAnimationFrame(() => {
+                    el.style.transform = `translateX(${toPx}px)`;
+                });
+                let done = false;
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    el.removeEventListener('transitionend', finish);
+                    clearTimeout(fallback);
+                    if (onDone) onDone();
+                };
+                el.addEventListener('transitionend', finish);
+                const fallback = setTimeout(finish, SLIDE_DURATION_MS + 60);
+            }
+
+            function resetInline(el) {
+                el.style.transition = '';
+                el.style.transform = '';
+            }
+
+            function closeSettingsDragPreview() {
+                const panelWidth = settings.getBoundingClientRect().width || window.innerWidth;
+                animateTo(settings, panelWidth, () => {
+                    settings.style.transition = '';
+                    settings.style.transform = '';
+                    settings.style.visibility = '';
+                });
+            }
 
             section.addEventListener('touchstart', (e) => {
                 if (e.touches.length !== 1) return;
@@ -1256,6 +1317,8 @@
                 tracking = true;
                 decided = false;
                 isHorizontalSwipe = false;
+                dragMode = null;
+                sectionWidth = section.getBoundingClientRect().width || window.innerWidth;
             }, { passive: true });
 
             section.addEventListener('touchmove', (e) => {
@@ -1266,30 +1329,100 @@
                 if (!decided && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
                     decided = true;
                     isHorizontalSwipe = Math.abs(dx) > Math.abs(dy);
+
+                    if (isHorizontalSwipe) {
+                        const idx = currentChannelIndex();
+                        const atLast = idx === channels.length - 1;
+                        const atFirst = idx === 0;
+
+                        section.style.transition = 'none';
+
+                        if (dx < 0 && atLast) {
+                            dragMode = 'settings';
+                            settings.style.transition = 'none';
+                            settings.style.visibility = 'visible';
+                        } else if (dx > 0 && atFirst) {
+                            dragMode = 'rubber';
+                        } else {
+                            dragMode = 'content';
+                        }
+                    }
                 }
 
-                if (isHorizontalSwipe) {
-                    e.preventDefault();
+                if (!isHorizontalSwipe) return;
+                e.preventDefault();
+
+                if (dragMode === 'content') {
+                    section.style.transform = `translateX(${dx}px)`;
+                } else if (dragMode === 'rubber') {
+                    // Resistenza elastica: si muove poco e non permette mai di
+                    // superare il primo canale (niente loop all'indietro).
+                    section.style.transform = `translateX(${dx * 0.3}px)`;
+                } else if (dragMode === 'settings') {
+                    const panelWidth = settings.getBoundingClientRect().width || window.innerWidth;
+                    const dragDistance = Math.min(Math.max(-dx, 0), panelWidth);
+                    settings.style.transform = `translateX(${panelWidth - dragDistance}px)`;
+                    // Il blocco contenuti accompagna leggermente il dito, per
+                    // dare la sensazione che stia "tirando fuori" il menu.
+                    section.style.transform = `translateX(${dx * 0.25}px)`;
                 }
             }, { passive: false });
 
             section.addEventListener('touchend', (e) => {
                 if (!tracking) return;
                 tracking = false;
-                if (!isHorizontalSwipe) return;
+                if (!isHorizontalSwipe) { dragMode = null; return; }
 
                 const touch = e.changedTouches[0];
                 const dx = touch.clientX - startX;
                 const dy = touch.clientY - startY;
                 const elapsed = Date.now() - startTime;
+                const validSwipe = Math.abs(dx) >= SWIPE_MIN_DISTANCE && Math.abs(dy) <= SWIPE_MAX_VERTICAL && elapsed <= SWIPE_MAX_DURATION;
 
-                if (Math.abs(dx) >= SWIPE_MIN_DISTANCE && Math.abs(dy) <= SWIPE_MAX_VERTICAL && elapsed <= SWIPE_MAX_DURATION) {
-                    switchToAdjacentChannel(dx < 0 ? 1 : -1);
+                if (dragMode === 'content') {
+                    if (validSwipe) {
+                        const direction = dx < 0 ? 1 : -1;
+                        const exitPx = dx < 0 ? -sectionWidth : sectionWidth;
+                        // Il blocco esce completamente dallo schermo nella direzione
+                        // dello swipe, poi il nuovo canale entra dal lato opposto.
+                        animateTo(section, exitPx, () => {
+                            switchToAdjacentChannel(direction);
+                            section.style.transition = 'none';
+                            section.style.transform = `translateX(${-exitPx}px)`;
+                            void section.offsetWidth;
+                            animateTo(section, 0, () => resetInline(section));
+                        });
+                    } else {
+                        animateTo(section, 0, () => resetInline(section));
+                    }
+                } else if (dragMode === 'rubber') {
+                    animateTo(section, 0, () => resetInline(section));
+                } else if (dragMode === 'settings') {
+                    const panelWidth = settings.getBoundingClientRect().width || window.innerWidth;
+                    const dragDistance = Math.min(Math.max(-dx, 0), panelWidth);
+                    const openEnough = dragDistance >= panelWidth * SETTINGS_OPEN_RATIO || (validSwipe && dx < 0);
+
+                    animateTo(section, 0, () => resetInline(section));
+
+                    if (openEnough) {
+                        animateTo(settings, 0, () => openSettingsPanel());
+                    } else {
+                        closeSettingsDragPreview();
+                    }
                 }
+                dragMode = null;
             }, { passive: true });
 
             section.addEventListener('touchcancel', () => {
+                if (!tracking) return;
                 tracking = false;
+                if (dragMode === 'content' || dragMode === 'rubber') {
+                    animateTo(section, 0, () => resetInline(section));
+                } else if (dragMode === 'settings') {
+                    animateTo(section, 0, () => resetInline(section));
+                    closeSettingsDragPreview();
+                }
+                dragMode = null;
             }, { passive: true });
         })();
 
@@ -2314,22 +2447,45 @@
             pendingActionTargetId = null;
         }
 
-        function toggleView() {
+        // Apre il pannello impostazioni. Usata sia dal bottone hamburger sia
+        // dal trascinamento con swipe: ripulisce eventuali stili inline
+        // lasciati dall'animazione di trascinamento e lascia il controllo
+        // definitivo alle classi CSS (.active), che gestiscono anche la
+        // visibilità in modo affidabile su tutti i browser/desktop.
+        function openSettingsPanel() {
             const settings = document.getElementById('settingsPanel');
             const hamburger = document.getElementById('hamburgerIcon');
             const btn = document.getElementById('toggleViewBtn');
 
+            settings.style.transition = '';
+            settings.style.transform = '';
+            settings.style.visibility = '';
+            settings.classList.add('active');
+            hamburger.classList.add('open');
+            btn.setAttribute('aria-label', 'Chiudi impostazioni');
+            currentView = 'settings';
+            renderManageChannelsList();
+        }
+
+        function closeSettingsPanel() {
+            const settings = document.getElementById('settingsPanel');
+            const hamburger = document.getElementById('hamburgerIcon');
+            const btn = document.getElementById('toggleViewBtn');
+
+            settings.style.transition = '';
+            settings.style.transform = '';
+            settings.style.visibility = '';
+            settings.classList.remove('active');
+            hamburger.classList.remove('open');
+            btn.setAttribute('aria-label', 'Apri impostazioni');
+            currentView = 'home';
+        }
+
+        function toggleView() {
             if (currentView === 'home') {
-                settings.classList.add('active');
-                hamburger.classList.add('open');
-                btn.setAttribute('aria-label', 'Chiudi impostazioni');
-                currentView = 'settings';
-                renderManageChannelsList();
+                openSettingsPanel();
             } else {
-                settings.classList.remove('active');
-                hamburger.classList.remove('open');
-                btn.setAttribute('aria-label', 'Apri impostazioni');
-                currentView = 'home';
+                closeSettingsPanel();
             }
         }
 
