@@ -487,6 +487,22 @@
             opacity: 0.30 !important;
         }
 
+        /* Barra di avanzamento sottile: indica quanto di un video è già stato
+           visto, indipendentemente dal fatto che sia il video attivo nel player
+           (che resta segnalato dal bordo colorato active-yt/active-twitch). */
+        .progress-underline-track {
+            width: 100%;
+            height: 2px;
+            border-radius: 2px;
+            background-color: rgba(255, 255, 255, 0.10);
+            overflow: hidden;
+        }
+
+        .progress-underline-fill {
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.55);
+        }
+
         @keyframes materialFadeIn {
             to { opacity: 1; transform: translateX(0); }
         }
@@ -1370,9 +1386,14 @@
                     metaHtml = `<div class="v-meta">Durata: ${item.durationText}</div>`;
                 }
 
+                const totalSeconds = item.durationSeconds || parseDurationTextToSeconds(item.durationText);
+                const savedSeconds = timestampsCache[item.videoId] || 0;
+                const progressHtml = buildProgressBarHtml(savedSeconds, totalSeconds, isCompleted);
+
                 card.innerHTML = `
                     <div class="info-area">
                         <div class="v-title">${item.title}</div>
+                        ${progressHtml}
                         ${metaHtml}
                     </div>
                     <button class="mark-seen-btn${isCompleted ? ' is-seen' : ''}" title="${isCompleted ? 'Segna come da vedere' : 'Segna come già visto'}" onclick="toggleVideoCompleted('${item.videoId}', event)">
@@ -1391,6 +1412,30 @@
             const mins = parseInt(match[2] || '0', 10);
             const secs = parseInt(match[3] || '0', 10);
             return hours * 3600 + mins * 60 + secs;
+        }
+
+        // Ricava i secondi totali da un testo tipo "12 min" o "45 s" (usato quando
+        // non abbiamo un valore numerico esatto, es. video arrivati dal Worker).
+        function parseDurationTextToSeconds(text) {
+            if (!text) return 0;
+            const minMatch = text.match(/(\d+)\s*min/i);
+            if (minMatch) return parseInt(minMatch[1], 10) * 60;
+            const secMatch = text.match(/(\d+)\s*s\b/i);
+            if (secMatch) return parseInt(secMatch[1], 10);
+            return 0;
+        }
+
+        // Genera (se pertinente) l'HTML della sottile barra di avanzamento sotto al
+        // titolo: mostra quanto di quel video hai già visto, indipendentemente dal
+        // fatto che sia o meno il video attualmente caricato nel player.
+        function buildProgressBarHtml(savedSeconds, totalSeconds, isCompleted) {
+            if (isCompleted || !savedSeconds || savedSeconds < 5 || !totalSeconds) return '';
+            const pct = Math.min(100, Math.max(0, (savedSeconds / totalSeconds) * 100));
+            if (pct < 1) return '';
+            return `
+                <div class="progress-underline-track">
+                    <div class="progress-underline-fill" style="width:${pct.toFixed(1)}%;"></div>
+                </div>`;
         }
 
         // Carica gli ultimi video di un canale tramite il Worker Cloudflare proprietario
@@ -1475,7 +1520,7 @@
                 if ((seconds > 0 && seconds <= 65) || title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
                     continue;
                 }
-                items.push({ title, videoId, durationText });
+                items.push({ title, videoId, durationText, durationSeconds: seconds });
             }
             return items;
         }
@@ -1667,10 +1712,14 @@
                 const durationText = v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)} min` : '';
                 const thumb = v.previewThumbnailURL ? v.previewThumbnailURL.replace('%{width}', '120').replace('%{height}', '68') : '';
 
+                const savedSeconds = timestampsCache[`tw-${v.id}`] || 0;
+                const progressHtml = buildProgressBarHtml(savedSeconds, v.lengthSeconds || 0, isCompleted);
+
                 card.innerHTML = `
                     ${thumb ? `<img src="${thumb}" alt="" style="width:120px; height:68px; border-radius:8px; object-fit:cover; flex-shrink:0;">` : ''}
                     <div class="info-area">
                         <div class="v-title">${v.title || 'Senza titolo'}</div>
+                        ${progressHtml}
                         ${durationText ? `<div class="v-meta">Durata: ${durationText}</div>` : ''}
                     </div>
                     <button class="mark-seen-btn is-twitch${isCompleted ? ' is-seen' : ''}" title="${isCompleted ? 'Segna come da vedere' : 'Segna come già visto'}" onclick="toggleVideoCompleted('tw-${v.id}', event)">
