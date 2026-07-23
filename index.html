@@ -805,23 +805,25 @@
             <div class="channels-slider" id="channelsSlider"></div>
         </div>
 
-        <div class="content-header" id="contentHeaderRow" style="display:none;">
-            <h2 class="section-title" id="currentChannelTitle">Ultimi video pubblicati</h2>
-            <label class="filter-toggle" id="filterToggleWrap" style="display:none;">
-                <span class="filter-toggle-text">
-                    <i class="material-icons-round">filter_alt</i>
-                    Filtro
-                </span>
-                <span class="mini-switch" id="filterToggleSwitch">
-                    <input type="checkbox" id="filterToggleInput" onchange="onFilterToggleChange()">
-                    <span class="track"><span class="thumb"></span></span>
-                </span>
-            </label>
-        </div>
-        <div class="video-list" id="videoList">
-            <p id="initialPlaceholder" style="padding: 24px 4px; color: var(--text-secondary); text-align: center; font-size: 14px;">
-                Caricamento dati dal server...
-            </p>
+        <div id="contentSection">
+            <div class="content-header" id="contentHeaderRow" style="display:none;">
+                <h2 class="section-title" id="currentChannelTitle">Ultimi video pubblicati</h2>
+                <label class="filter-toggle" id="filterToggleWrap" style="display:none;">
+                    <span class="filter-toggle-text">
+                        <i class="material-icons-round">filter_alt</i>
+                        Filtro
+                    </span>
+                    <span class="mini-switch" id="filterToggleSwitch">
+                        <input type="checkbox" id="filterToggleInput" onchange="onFilterToggleChange()">
+                        <span class="track"><span class="thumb"></span></span>
+                    </span>
+                </label>
+            </div>
+            <div class="video-list" id="videoList">
+                <p id="initialPlaceholder" style="padding: 24px 4px; color: var(--text-secondary); text-align: center; font-size: 14px;">
+                    Caricamento dati dal server...
+                </p>
+            </div>
         </div>
     </div>
 
@@ -1210,6 +1212,84 @@
                         scrollActiveChannelIntoView(true);
                     }
                 }, 900);
+            }, { passive: true });
+        })();
+
+        // Passa al canale precedente (direction = -1) o successivo (direction = 1)
+        // rispetto a quello attualmente attivo, seguendo l'ordine della lista
+        // canali. Arrivati all'ultimo/primo si ricomincia dall'altro capo.
+        function switchToAdjacentChannel(direction) {
+            if (!channels || channels.length < 2) return;
+            const currentIndex = channels.findIndex(c => c.id === lastActiveChannelId);
+            if (currentIndex === -1) return;
+
+            let nextIndex = currentIndex + direction;
+            if (nextIndex < 0) nextIndex = channels.length - 1;
+            if (nextIndex >= channels.length) nextIndex = 0;
+
+            const nextChannel = channels[nextIndex];
+            if (nextChannel) selectChannel(nextChannel.id);
+        }
+
+        // Swipe orizzontale in qualsiasi punto della zona contenuti (header +
+        // lista video): scorrendo verso sinistra si passa al canale
+        // successivo, verso destra al precedente. Lo scroll verticale
+        // normale della lista resta intatto: la direzione del gesto viene
+        // decisa solo dopo un piccolo movimento iniziale, e si blocca lo
+        // scroll di pagina soltanto se il gesto è chiaramente orizzontale.
+        (function setupContentSwipeChannelNav() {
+            const section = document.getElementById('contentSection');
+            if (!section) return;
+
+            const SWIPE_MIN_DISTANCE = 60; // px orizzontali minimi per contare come swipe
+            const SWIPE_MAX_VERTICAL = 60; // px verticali massimi tollerati
+            const SWIPE_MAX_DURATION = 600; // ms, per un gesto rapido e fluido
+
+            let startX = 0, startY = 0, startTime = 0;
+            let tracking = false, decided = false, isHorizontalSwipe = false;
+
+            section.addEventListener('touchstart', (e) => {
+                if (e.touches.length !== 1) return;
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                startTime = Date.now();
+                tracking = true;
+                decided = false;
+                isHorizontalSwipe = false;
+            }, { passive: true });
+
+            section.addEventListener('touchmove', (e) => {
+                if (!tracking || e.touches.length !== 1) return;
+                const dx = e.touches[0].clientX - startX;
+                const dy = e.touches[0].clientY - startY;
+
+                if (!decided && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+                    decided = true;
+                    isHorizontalSwipe = Math.abs(dx) > Math.abs(dy);
+                }
+
+                if (isHorizontalSwipe) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            section.addEventListener('touchend', (e) => {
+                if (!tracking) return;
+                tracking = false;
+                if (!isHorizontalSwipe) return;
+
+                const touch = e.changedTouches[0];
+                const dx = touch.clientX - startX;
+                const dy = touch.clientY - startY;
+                const elapsed = Date.now() - startTime;
+
+                if (Math.abs(dx) >= SWIPE_MIN_DISTANCE && Math.abs(dy) <= SWIPE_MAX_VERTICAL && elapsed <= SWIPE_MAX_DURATION) {
+                    switchToAdjacentChannel(dx < 0 ? 1 : -1);
+                }
+            }, { passive: true });
+
+            section.addEventListener('touchcancel', () => {
+                tracking = false;
             }, { passive: true });
         })();
 
