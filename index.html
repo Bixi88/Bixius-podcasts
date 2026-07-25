@@ -518,6 +518,30 @@
             opacity: 0.30 !important;
         }
 
+        /* Glow pulsante singolo: usato solo all'apertura dell'app per
+           richiamare l'attenzione sulla card del video ripristinato,
+           dopo che è stata portata a vista con lo scroll automatico.
+           Un'unica pulsazione, poi la classe viene rimossa via JS. */
+        @keyframes cardGlowPulseYt {
+            0%   { box-shadow: 0 0 12px rgba(255, 0, 0, 0.15); }
+            35%  { box-shadow: 0 0 30px 6px rgba(255, 0, 0, 0.65); }
+            100% { box-shadow: 0 0 12px rgba(255, 0, 0, 0.15); }
+        }
+
+        @keyframes cardGlowPulseTwitch {
+            0%   { box-shadow: 0 0 12px rgba(145, 70, 255, 0.15); }
+            35%  { box-shadow: 0 0 30px 6px rgba(145, 70, 255, 0.65); }
+            100% { box-shadow: 0 0 12px rgba(145, 70, 255, 0.15); }
+        }
+
+        .video-card.glow-once-yt {
+            animation: cardGlowPulseYt 1.3s ease-out;
+        }
+
+        .video-card.glow-once-twitch {
+            animation: cardGlowPulseTwitch 1.3s ease-out;
+        }
+
         /* Barra di avanzamento sottile: indica quanto di un video è già stato
            visto, indipendentemente dal fatto che sia il video attivo nel player
            (che resta segnalato dal bordo colorato active-yt/active-twitch). */
@@ -1120,6 +1144,23 @@
             lastWatchedData = serverData.lastWatched || null;
             lastActiveChannelId = serverData.config?.lastActiveChannelId || null;
 
+            // Se il video ripristinato all'apertura porta con sé il canale di
+            // appartenenza (dati salvati dopo questa modifica), è quello il
+            // canale da aprire visivamente, anche se non coincide con l'ultimo
+            // canale semplicemente sfogliato. Sui dati vecchi (senza channelId)
+            // si ricade sul comportamento precedente.
+            const initialTargetChannelId = (lastWatchedData && lastWatchedData.channelId) || lastActiveChannelId;
+
+            // Pre-impostiamo qui l'id del video "in play" così, quando la lista
+            // video del canale verrà disegnata qualche riga più sotto, la card
+            // giusta nasce già con il bordo evidenziato (active-yt/active-twitch),
+            // senza dover aspettare che il player parta davvero.
+            if (lastWatchedData && lastWatchedData.videoId) {
+                currentPlayingVideoId = lastWatchedData.platform === 'twitch'
+                    ? `tw-${lastWatchedData.videoId}`
+                    : lastWatchedData.videoId;
+            }
+
             // Allineamento specchio locale di backup rapido
             try {
                 localStorage.setItem('bixius_user_channels', JSON.stringify(channels));
@@ -1132,9 +1173,10 @@
             // Rendering grafico iniziale dei canali
             renderAppChannels();
             
-            // Se c'era un canale attivo in precedenza, lo ricarica
-            if (lastActiveChannelId && channels.some(c => c.id === lastActiveChannelId)) {
-                selectChannel(lastActiveChannelId);
+            // Riapre il canale del video ripristinato (o, in mancanza, l'ultimo
+            // canale semplicemente sfogliato)
+            if (initialTargetChannelId && channels.some(c => c.id === initialTargetChannelId)) {
+                selectChannel(initialTargetChannelId);
             } else {
                 document.getElementById('videoList').innerHTML = `<p style="padding: 24px 4px; color: var(--text-secondary); text-align: center; font-size: 14px;">Nessun canale selezionato. Scegli un canale in alto.</p>`;
             }
@@ -2351,7 +2393,7 @@
             if(!apiReady) return;
             currentPlayingVideoId = videoId;
             
-            const watchData = { videoId: videoId, title: title, platform: currentSelectedChannelType };
+            const watchData = { videoId: videoId, title: title, platform: currentSelectedChannelType, channelId: lastActiveChannelId };
             lastWatchedData = watchData;
             
             try {
@@ -2400,7 +2442,7 @@
             currentPlayingVideoId = `tw-${videoId}`;
             currentSelectedChannelType = 'twitch';
 
-            const watchData = { videoId: videoId, title: title, platform: 'twitch' };
+            const watchData = { videoId: videoId, title: title, platform: 'twitch', channelId: lastActiveChannelId };
             lastWatchedData = watchData;
             
             try {
@@ -2640,12 +2682,56 @@
                 if (!twitchApiReady) return; 
                 const savedSeconds = timestampsCache[`tw-${vid}`] || 0;
                 launchTwitchVideo(vid, lastWatchedData.title, savedSeconds, 0);
+                revealInitialPlayingCard(`card-tw-${vid}`, true);
             } else {
                 if (!apiReady) return; 
                 const savedSeconds = timestampsCache[vid] || 0;
                 launchVideo(vid, lastWatchedData.title, savedSeconds, 0);
+                revealInitialPlayingCard(`card-${vid}`, false);
             }
             initialResumeDone = true;
+        }
+
+        // Porta visivamente in vista la card del video ripristinato all'apertura
+        // e la fa "pulsare" una sola volta, per farla notare subito. La lista
+        // video del canale può ancora essere in caricamento (fetch di rete) in
+        // questo momento, quindi se la card non esiste ancora si aspetta la sua
+        // comparsa nel DOM invece di rinunciare subito.
+        function revealInitialPlayingCard(cardElementId, isTwitch) {
+            const glowClass = isTwitch ? 'glow-once-twitch' : 'glow-once-yt';
+
+            function playGlow(card) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                card.classList.add(glowClass);
+                card.addEventListener('animationend', function onEnd() {
+                    card.classList.remove(glowClass);
+                    card.removeEventListener('animationend', onEnd);
+                });
+            }
+
+            const existing = document.getElementById(cardElementId);
+            if (existing) {
+                playGlow(existing);
+                return;
+            }
+
+            // La card non c'è ancora: osserviamo la lista finché non compare,
+            // con un timeout di sicurezza per non restare in ascolto per sempre
+            // (es. canale poi risultato vuoto o filtrato).
+            const listContainer = document.getElementById('videoList');
+            if (!listContainer) return;
+
+            const observer = new MutationObserver(() => {
+                const card = document.getElementById(cardElementId);
+                if (card) {
+                    observer.disconnect();
+                    clearTimeout(safetyTimeout);
+                    playGlow(card);
+                }
+            });
+            observer.observe(listContainer, { childList: true });
+
+            const safetyTimeout = setTimeout(() => observer.disconnect(), 8000);
         }
 
         function showEmptyPlayerPlaceholder() {
