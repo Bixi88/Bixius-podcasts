@@ -2699,39 +2699,58 @@
         // comparsa nel DOM invece di rinunciare subito.
         function revealInitialPlayingCard(cardElementId, isTwitch) {
             const glowClass = isTwitch ? 'glow-once-twitch' : 'glow-once-yt';
+            const glowAnimationName = isTwitch ? 'cardGlowPulseTwitch' : 'cardGlowPulseYt';
 
             function playGlow(card) {
                 card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                card.classList.add(glowClass);
-                card.addEventListener('animationend', function onEnd() {
-                    card.classList.remove(glowClass);
-                    card.removeEventListener('animationend', onEnd);
-                });
+                // Aspettiamo che lo scroll fluido sia arrivato a destinazione
+                // prima di far partire il glow: farlo insieme risultava confuso,
+                // con la card ancora in movimento mentre già pulsava.
+                setTimeout(() => {
+                    card.classList.add(glowClass);
+                    card.addEventListener('animationend', function onEnd(e) {
+                        // La card ha anche una sua animazione di ingresso
+                        // (materialFadeIn) che scatena comunque 'animationend':
+                        // dobbiamo reagire solo a QUELLA del glow, altrimenti
+                        // rischiamo di togliere la classe prima che si veda.
+                        if (e.animationName !== glowAnimationName) return;
+                        card.classList.remove(glowClass);
+                        card.removeEventListener('animationend', onEnd);
+                    });
+                }, 500);
             }
 
-            const existing = document.getElementById(cardElementId);
-            if (existing) {
-                playGlow(existing);
-                return;
-            }
-
-            // La card non c'è ancora: osserviamo la lista finché non compare,
-            // con un timeout di sicurezza per non restare in ascolto per sempre
-            // (es. canale poi risultato vuoto o filtrato).
-            const listContainer = document.getElementById('videoList');
-            if (!listContainer) return;
-
-            const observer = new MutationObserver(() => {
-                const card = document.getElementById(cardElementId);
-                if (card) {
-                    observer.disconnect();
-                    clearTimeout(safetyTimeout);
-                    playGlow(card);
+            function attemptReveal() {
+                const existing = document.getElementById(cardElementId);
+                if (existing) {
+                    playGlow(existing);
+                    return;
                 }
-            });
-            observer.observe(listContainer, { childList: true });
 
-            const safetyTimeout = setTimeout(() => observer.disconnect(), 8000);
+                // La card non c'è ancora: osserviamo la lista finché non compare,
+                // con un timeout di sicurezza per non restare in ascolto per
+                // sempre (es. canale poi risultato vuoto o filtrato).
+                const listContainer = document.getElementById('videoList');
+                if (!listContainer) return;
+
+                const observer = new MutationObserver(() => {
+                    const card = document.getElementById(cardElementId);
+                    if (card) {
+                        observer.disconnect();
+                        clearTimeout(safetyTimeout);
+                        playGlow(card);
+                    }
+                });
+                observer.observe(listContainer, { childList: true });
+
+                const safetyTimeout = setTimeout(() => observer.disconnect(), 8000);
+            }
+
+            // Diamo all'app un attimo per assestarsi (rendering iniziale, layout,
+            // eventuale fetch della lista video) prima di scrollare: farlo a
+            // freddo nell'istante esatto in cui la pagina si apre risultava
+            // troppo brusco e immediato.
+            setTimeout(attemptReveal, 1200);
         }
 
         function showEmptyPlayerPlaceholder() {
