@@ -518,30 +518,6 @@
             opacity: 0.30 !important;
         }
 
-        /* Glow pulsante singolo: usato solo all'apertura dell'app per
-           richiamare l'attenzione sulla card del video ripristinato,
-           dopo che è stata portata a vista con lo scroll automatico.
-           Un'unica pulsazione, poi la classe viene rimossa via JS. */
-        @keyframes cardGlowPulseYt {
-            0%   { box-shadow: 0 0 12px rgba(255, 0, 0, 0.15); }
-            35%  { box-shadow: 0 0 30px 6px rgba(255, 0, 0, 0.65); }
-            100% { box-shadow: 0 0 12px rgba(255, 0, 0, 0.15); }
-        }
-
-        @keyframes cardGlowPulseTwitch {
-            0%   { box-shadow: 0 0 12px rgba(145, 70, 255, 0.15); }
-            35%  { box-shadow: 0 0 30px 6px rgba(145, 70, 255, 0.65); }
-            100% { box-shadow: 0 0 12px rgba(145, 70, 255, 0.15); }
-        }
-
-        .video-card.glow-once-yt {
-            animation: cardGlowPulseYt 1.3s ease-out;
-        }
-
-        .video-card.glow-once-twitch {
-            animation: cardGlowPulseTwitch 1.3s ease-out;
-        }
-
         /* Barra di avanzamento sottile: indica quanto di un video è già stato
            visto, indipendentemente dal fatto che sia il video attivo nel player
            (che resta segnalato dal bordo colorato active-yt/active-twitch). */
@@ -2698,32 +2674,14 @@
         // questo momento, quindi se la card non esiste ancora si aspetta la sua
         // comparsa nel DOM invece di rinunciare subito.
         function revealInitialPlayingCard(cardElementId, isTwitch) {
-            const glowClass = isTwitch ? 'glow-once-twitch' : 'glow-once-yt';
-            const glowAnimationName = isTwitch ? 'cardGlowPulseTwitch' : 'cardGlowPulseYt';
-
-            function playGlow(card) {
+            function scrollToCard(card) {
                 card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Aspettiamo che lo scroll fluido sia arrivato a destinazione
-                // prima di far partire il glow: farlo insieme risultava confuso,
-                // con la card ancora in movimento mentre già pulsava.
-                setTimeout(() => {
-                    card.classList.add(glowClass);
-                    card.addEventListener('animationend', function onEnd(e) {
-                        // La card ha anche una sua animazione di ingresso
-                        // (materialFadeIn) che scatena comunque 'animationend':
-                        // dobbiamo reagire solo a QUELLA del glow, altrimenti
-                        // rischiamo di togliere la classe prima che si veda.
-                        if (e.animationName !== glowAnimationName) return;
-                        card.classList.remove(glowClass);
-                        card.removeEventListener('animationend', onEnd);
-                    });
-                }, 500);
             }
 
             function attemptReveal() {
                 const existing = document.getElementById(cardElementId);
                 if (existing) {
-                    playGlow(existing);
+                    scrollToCard(existing);
                     return;
                 }
 
@@ -2738,7 +2696,7 @@
                     if (card) {
                         observer.disconnect();
                         clearTimeout(safetyTimeout);
-                        playGlow(card);
+                        scrollToCard(card);
                     }
                 });
                 observer.observe(listContainer, { childList: true });
