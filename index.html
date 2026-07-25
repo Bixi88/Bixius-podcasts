@@ -2200,6 +2200,20 @@
                 setCachedChannelContent(channel.id, channel.platform, rawItems);
 
                 if (lastActiveChannelId !== channel.id) return;
+
+                // Se questo è un aggiornamento "silenzioso" di una cache scaduta
+                // e la lista sta già mostrando dei video (mostrati subito dalla
+                // cache precedente), evitiamo di ridisegnare tutto da capo:
+                // svuotare e ricreare le card le farebbe sparire e ricomparire
+                // di colpo, che è esattamente quello che un aggiornamento "in
+                // sordina" dovrebbe evitare di far notare. I dati freschi restano
+                // comunque salvati in cache e verranno mostrati alla prossima
+                // apertura del canale.
+                const alreadyShowingVideos = listContainer.querySelector('.video-card') !== null;
+                if (silent && alreadyShowingVideos) {
+                    return;
+                }
+
                 renderChannelContent(channel, rawItems, applyFilter, listContainer);
 
             } catch (err) {
