@@ -1529,6 +1529,7 @@
 
                 if (dragMode === 'content') {
                     if (validSwipe) {
+                        if (canVibrate()) navigator.vibrate(HAPTIC_TICK_DURATION_MS);
                         const direction = dx < 0 ? 1 : -1;
                         const exitPx = dx < 0 ? -sectionWidth : sectionWidth;
                         // Il blocco esce completamente dallo schermo nella direzione
@@ -1553,6 +1554,7 @@
                     animateTo(section, 0, () => resetInline(section));
 
                     if (openEnough) {
+                        if (canVibrate()) navigator.vibrate(HAPTIC_TICK_DURATION_MS);
                         animateTo(settings, 0, () => openSettingsPanel());
                     } else {
                         closeSettingsDragPreview();
@@ -1659,6 +1661,7 @@
                 const closeEnough = dragDistance >= panelWidth * CLOSE_RATIO || validSwipe;
 
                 if (closeEnough) {
+                    if (canVibrate()) navigator.vibrate(HAPTIC_TICK_DURATION_MS);
                     animateTo(settings, panelWidth, () => {
                         settings.style.transition = '';
                         settings.style.transform = '';
@@ -1936,7 +1939,10 @@
                 }
 
                 card.className = `video-card${isCompleted ? ' completed' : ''}${activeClass}`;
-                card.onclick = () => launchVideo(item.videoId, item.title);
+                card.onclick = () => {
+                    if (canVibrate()) navigator.vibrate(HAPTIC_TICK_DURATION_MS);
+                    launchVideo(item.videoId, item.title);
+                };
                 card.style.animationDelay = `${(i % 10) * 30}ms`;
                 
                 let metaHtml = '';
@@ -2322,7 +2328,10 @@
                 const card = document.createElement('div');
                 card.id = `card-tw-${v.id}`;
                 card.className = `video-card${isCompleted ? ' completed' : ''}${isActive ? ' active-twitch' : ''}`;
-                card.onclick = () => launchTwitchVideo(v.id, v.title || 'Senza titolo');
+                card.onclick = () => {
+                    if (canVibrate()) navigator.vibrate(HAPTIC_TICK_DURATION_MS);
+                    launchTwitchVideo(v.id, v.title || 'Senza titolo');
+                };
 
                 const durationText = v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)} min` : '';
                 const thumb = v.previewThumbnailURL ? v.previewThumbnailURL.replace('%{width}', '120').replace('%{height}', '68') : '';
@@ -2682,60 +2691,21 @@
             initialResumeDone = true;
         }
 
-        // Feedback aptico a "raffica di colpetti" distanziati (stile rotellina
-        // iPhone), usato solo per gli scroll automatici che fa l'app da sola
-        // (mai per lo scroll manuale dell'utente, per non diventare fastidioso).
-        // Parte un colpetto secco ogni TICK_INTERVAL_MS finché non si chiama
-        // stop() o non scade SAFETY_TIMEOUT_MS.
+        // Feedback aptico: colpetto secco usato per swipe e click sulle card
+        // (mai per il roll di scroll automatico, perché all'avvio non c'è
+        // un'interazione dell'utente in corso e il browser lo ignorerebbe).
         const HAPTIC_TICK_DURATION_MS = 12;
-        const HAPTIC_TICK_INTERVAL_MS = 85;
-        const HAPTIC_SAFETY_TIMEOUT_MS = 1200;
 
         function canVibrate() {
             return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
         }
 
-        function startHapticTickBurst() {
-            if (!canVibrate()) return { stop: () => {} };
-
-            navigator.vibrate(HAPTIC_TICK_DURATION_MS);
-            const intervalId = setInterval(() => {
-                navigator.vibrate(HAPTIC_TICK_DURATION_MS);
-            }, HAPTIC_TICK_INTERVAL_MS);
-
-            let stopped = false;
-            const stop = () => {
-                if (stopped) return;
-                stopped = true;
-                clearInterval(intervalId);
-                clearTimeout(safetyTimeout);
-            };
-            const safetyTimeout = setTimeout(stop, HAPTIC_SAFETY_TIMEOUT_MS);
-
-            return { stop };
-        }
-
-        // Porta visivamente in vista la card del video ripristinato all'apertura
-        // e la fa "pulsare" una sola volta, per farla notare subito. La lista
-        // video del canale può ancora essere in caricamento (fetch di rete) in
-        // questo momento, quindi se la card non esiste ancora si aspetta la sua
-        // comparsa nel DOM invece di rinunciare subito.
+        // Porta visivamente in vista la card del video ripristinato all'apertura.
+        // La lista video del canale può ancora essere in caricamento (fetch di
+        // rete) in questo momento, quindi se la card non esiste ancora si
+        // aspetta la sua comparsa nel DOM invece di rinunciare subito.
         function revealInitialPlayingCard(cardElementId, isTwitch) {
             function scrollToCard(card) {
-                const burst = startHapticTickBurst();
-                let done = false;
-                const finish = () => {
-                    if (done) return;
-                    done = true;
-                    burst.stop();
-                    window.removeEventListener('scrollend', finish);
-                };
-                // La pagina non ha un contenitore con overflow proprio: a
-                // scrollare è la finestra stessa, quindi scrollend va ascoltato
-                // lì (non sulla card, che non è l'elemento che scrolla). Il
-                // fallback a tempo copre i rari casi in cui non scattasse.
-                window.addEventListener('scrollend', finish);
-                setTimeout(finish, HAPTIC_SAFETY_TIMEOUT_MS);
                 card.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
 
