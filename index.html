@@ -155,6 +155,18 @@
             padding: 0 16px;
         }
 
+        /* Durante lo swipe fra canali, #contentSection trasla orizzontalmente
+           (transform: translateX). Senza questo contenitore le card, essendo
+           più larghe del corridoio ai lati del player sticky, diventerebbero
+           visibili proprio in quello spazio durante l'animazione. overflow:
+           hidden qui la "taglia" fuori, senza vincolare l'altezza (che resta
+           libera in base al contenuto, per non rompere lo scroll verticale
+           della pagina). */
+        .content-swipe-clip {
+            overflow: hidden;
+            background-color: var(--bg-main);
+        }
+
         .view-panel {
             display: none;
         }
@@ -836,6 +848,7 @@
             <div class="channels-slider" id="channelsSlider"></div>
         </div>
 
+        <div class="content-swipe-clip">
         <div id="contentSection">
             <div class="content-header" id="contentHeaderRow" style="display:none;">
                 <h2 class="section-title" id="currentChannelTitle">Ultimi video pubblicati</h2>
@@ -855,6 +868,7 @@
                     Caricamento dati dal server...
                 </p>
             </div>
+        </div>
         </div>
     </div>
 
@@ -2893,6 +2907,7 @@
         }
 
         function toggleView() {
+            if (canVibrate()) navigator.vibrate(HAPTIC_TICK_DURATION_MS);
             if (currentView === 'home') {
                 openSettingsPanel();
             } else {
