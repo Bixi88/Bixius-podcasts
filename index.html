@@ -2533,14 +2533,16 @@
             enforceRoundedPlayerCorners();
 
             twitchPlayer.addEventListener(Twitch.Player.READY, () => { startTwitchTimeTracker(); enforceRoundedPlayerCorners(); });
-            twitchPlayer.addEventListener(Twitch.Player.PLAY, () => startTwitchTimeTracker());
+            twitchPlayer.addEventListener(Twitch.Player.PLAY, () => { startTwitchTimeTracker(); acquireWakeLock(); });
             twitchPlayer.addEventListener(Twitch.Player.PAUSE, () => {
                 stopTwitchTimeTracker();
                 saveTwitchTimestamp();
+                releaseWakeLock();
             });
             twitchPlayer.addEventListener(Twitch.Player.ENDED, () => {
                 stopTwitchTimeTracker();
                 markVideoCompleted(currentPlayingVideoId);
+                releaseWakeLock();
             });
         }
 
@@ -2586,12 +2588,44 @@
             }
         }
 
+        // ---------------------------------------------------------------
+        // SCHERMO SEMPRE ACCESO DURANTE LA RIPRODUZIONE (Screen Wake Lock API)
+        // Alcuni browser non tengono acceso lo schermo per i video in iframe
+        // quando non sono a schermo intero: lo richiediamo esplicitamente.
+        // ---------------------------------------------------------------
+        let wakeLockSentinel = null;
+        let wantWakeLock = false;
+
+        async function acquireWakeLock() {
+            wantWakeLock = true;
+            if (!('wakeLock' in navigator) || wakeLockSentinel || document.visibilityState !== 'visible') return;
+            try {
+                wakeLockSentinel = await navigator.wakeLock.request('screen');
+                wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+            } catch (e) { wakeLockSentinel = null; }
+        }
+
+        function releaseWakeLock() {
+            wantWakeLock = false;
+            if (wakeLockSentinel) {
+                try { wakeLockSentinel.release(); } catch (e) {}
+                wakeLockSentinel = null;
+            }
+        }
+
+        // Il lock viene rilasciato dal browser quando la pagina va in background: lo riprendiamo al ritorno.
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible' && wantWakeLock) acquireWakeLock();
+        });
+
         function onPlayerStateChange(event) {
             if (event.data == YT.PlayerState.PLAYING) {
                 startTimeTracker();
+                acquireWakeLock();
             } else {
                 stopTimeTracker();
                 saveCurrentTimestamp();
+                releaseWakeLock();
             }
         }
 
