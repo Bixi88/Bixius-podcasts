@@ -429,18 +429,17 @@
             border: 2px solid var(--bg-main);
             display: flex; align-items: center; justify-content: center;
             z-index: 5; cursor: pointer; padding: 0;
-            animation: badgePop 0.18s ease-out;
+            animation: badgePop 0.12s ease-out;
         }
         .avatar-delete-badge i { font-size: 18px; color: #fff; margin: 0; }
         .channel-item.delete-mode .avatar-circle {
-            animation: avatarWiggle 0.55s ease-in-out 1;
+            animation: avatarWiggle 0.28s ease-in-out 1;
         }
         @keyframes avatarWiggle {
             0%, 100% { transform: rotate(0deg); }
-            15% { transform: rotate(-7deg); }
-            35% { transform: rotate(6deg); }
-            55% { transform: rotate(-5deg); }
-            75% { transform: rotate(3deg); }
+            25% { transform: rotate(-6deg); }
+            50% { transform: rotate(5deg); }
+            75% { transform: rotate(-3deg); }
         }
         @keyframes badgePop {
             from { transform: scale(0.3); opacity: 0; }
@@ -1515,7 +1514,7 @@
             item.querySelector('.avatar-circle').appendChild(badge);
 
             // Tremolio breve (< 1 secondo)
-            if (canVibrate()) navigator.vibrate([25, 40, 25]);
+            if (canVibrate()) navigator.vibrate([18, 30, 18]);
 
             deleteModeAutoHideTimer = setTimeout(exitChannelDeleteMode, DELETE_MODE_AUTO_HIDE_MS);
         }
@@ -1552,8 +1551,12 @@
             if (document.querySelector('.channel-item.delete-mode')) exitChannelDeleteMode();
         });
 
+        let initialChannelStripCentered = false;
+
         function renderAppChannels() {
             const slider = document.getElementById('channelsSlider');
+            const stripWrapper = document.getElementById('channelsSliderWrapper');
+            const prevScrollLeft = stripWrapper ? stripWrapper.scrollLeft : 0;
             slider.innerHTML = '';
             if(channels.length === 0) {
                 slider.innerHTML = `<p style="font-size:13px; color:var(--text-secondary); padding:10px;">Nessun canale configurato.</p>`;
@@ -1629,9 +1632,14 @@
                 slider.appendChild(item);
             });
 
-            // Ogni volta che la striscia viene ridisegnata, assicura che l'avatar
-            // del canale attivo sia visibile (es. dopo un refresh dei canali).
-            scrollActiveChannelIntoView(false);
+            // Solo all'apertura porta in vista il canale attivo; nei ridisegni
+            // successivi la striscia resta dove l'utente l'ha lasciata.
+            if (!initialChannelStripCentered && document.querySelector('.channel-item.active')) {
+                initialChannelStripCentered = true;
+                scrollActiveChannelIntoView(false);
+            } else if (stripWrapper) {
+                stripWrapper.scrollLeft = prevScrollLeft;
+            }
         }
 
         // Riporta in vista, scorrendo la striscia orizzontale, l'avatar del
@@ -1643,6 +1651,7 @@
             const activeItem = document.querySelector('.channel-item.active');
             const wrapper = document.getElementById('channelsSliderWrapper');
             if (!activeItem || !wrapper) return;
+            initialChannelStripCentered = true;
             // Scorrimento calcolato a mano e limitato al solo asse
             // orizzontale del wrapper: scrollIntoView (anche con
             // block:'nearest') può in alcuni browser trascinare con sé
@@ -1657,31 +1666,6 @@
             });
         }
 
-        // Se l'utente scorre/swipa manualmente la striscia dei canali e la
-        // lascia ferma con l'avatar attivo fuori dalla vista, dopo una breve
-        // pausa la striscia si riallinea da sola mostrando di nuovo l'avatar
-        // del canale la cui lista si sta guardando.
-        (function setupChannelStripAutoReturn() {
-            const wrapper = document.getElementById('channelsSliderWrapper');
-            if (!wrapper) return;
-            let returnTimer = null;
-
-            wrapper.addEventListener('scroll', () => {
-                if (returnTimer) clearTimeout(returnTimer);
-                returnTimer = setTimeout(() => {
-                    const activeItem = document.querySelector('.channel-item.active');
-                    if (!activeItem) return;
-
-                    const wrapperRect = wrapper.getBoundingClientRect();
-                    const itemRect = activeItem.getBoundingClientRect();
-                    const isFullyVisible = itemRect.left >= wrapperRect.left && itemRect.right <= wrapperRect.right;
-
-                    if (!isFullyVisible) {
-                        scrollActiveChannelIntoView(true);
-                    }
-                }, 900);
-            }, { passive: true });
-        })();
 
         // Passa al canale precedente (direction = -1) o successivo (direction = 1)
         // rispetto a quello attualmente attivo, seguendo l'ordine della lista
