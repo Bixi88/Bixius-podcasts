@@ -414,6 +414,39 @@
             transform: scale(0.95);
         }
 
+
+        /* Pressione prolungata sull'avatar: X di eliminazione + tremolio */
+        .channel-item, .channel-item * {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .channel-item img { pointer-events: none; }
+        .avatar-delete-badge {
+            position: absolute; top: -4px; right: -2px;
+            width: 28px; height: 28px; border-radius: 50%;
+            background-color: var(--yt-red); color: #fff;
+            border: 2px solid var(--bg-main);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 5; cursor: pointer; padding: 0;
+            animation: badgePop 0.18s ease-out;
+        }
+        .avatar-delete-badge i { font-size: 18px; color: #fff; margin: 0; }
+        .channel-item.delete-mode .avatar-circle {
+            animation: avatarWiggle 0.55s ease-in-out 1;
+        }
+        @keyframes avatarWiggle {
+            0%, 100% { transform: rotate(0deg); }
+            15% { transform: rotate(-7deg); }
+            35% { transform: rotate(6deg); }
+            55% { transform: rotate(-5deg); }
+            75% { transform: rotate(3deg); }
+        }
+        @keyframes badgePop {
+            from { transform: scale(0.3); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
         .avatar-circle {
             position: relative;
             width: 72px;
@@ -1444,6 +1477,81 @@
             return clean;
         }
 
+
+        // ---------------------------------------------------------------
+        // PRESSIONE PROLUNGATA SU AVATAR -> X per eliminare il canale
+        // ---------------------------------------------------------------
+        const LONG_PRESS_MS = 450;
+        const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+        const DELETE_MODE_AUTO_HIDE_MS = 6000;
+        let deleteModeAutoHideTimer = null;
+
+        function exitChannelDeleteMode() {
+            clearTimeout(deleteModeAutoHideTimer);
+            document.querySelectorAll('.channel-item.delete-mode').forEach(el => {
+                el.classList.remove('delete-mode');
+                const b = el.querySelector('.avatar-delete-badge');
+                if (b) b.remove();
+            });
+        }
+
+        function enterChannelDeleteMode(item, chan) {
+            exitChannelDeleteMode();
+            item.classList.add('delete-mode');
+
+            const badge = document.createElement('button');
+            badge.type = 'button';
+            badge.className = 'avatar-delete-badge';
+            badge.setAttribute('aria-label', `Elimina ${chan.name}`);
+            badge.innerHTML = '<i class="material-icons-round">close</i>';
+            const stop = (ev) => ev.stopPropagation();
+            badge.addEventListener('pointerdown', stop);
+            badge.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (canVibrate()) navigator.vibrate(HAPTIC_TICK_DURATION_MS);
+                exitChannelDeleteMode();
+                openDeleteModal(chan.id);
+            });
+            item.querySelector('.avatar-circle').appendChild(badge);
+
+            // Tremolio breve (< 1 secondo)
+            if (canVibrate()) navigator.vibrate([25, 40, 25]);
+
+            deleteModeAutoHideTimer = setTimeout(exitChannelDeleteMode, DELETE_MODE_AUTO_HIDE_MS);
+        }
+
+        function attachChannelLongPress(item, chan) {
+            let timer = null, startX = 0, startY = 0;
+
+            const cancel = () => { clearTimeout(timer); timer = null; };
+
+            item.addEventListener('pointerdown', (ev) => {
+                if (ev.target.closest('.avatar-delete-badge')) return;
+                startX = ev.clientX; startY = ev.clientY;
+                cancel();
+                timer = setTimeout(() => {
+                    timer = null;
+                    item._longPressFired = true;
+                    enterChannelDeleteMode(item, chan);
+                }, LONG_PRESS_MS);
+            });
+            item.addEventListener('pointermove', (ev) => {
+                if (!timer) return;
+                if (Math.abs(ev.clientX - startX) > LONG_PRESS_MOVE_TOLERANCE_PX ||
+                    Math.abs(ev.clientY - startY) > LONG_PRESS_MOVE_TOLERANCE_PX) cancel();
+            });
+            ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => item.addEventListener(t, cancel));
+
+            // Niente menu nativo del browser (copia/scarica immagine...)
+            item.addEventListener('contextmenu', (ev) => ev.preventDefault());
+        }
+
+        // Toccando altrove la X sparisce
+        document.addEventListener('pointerdown', (ev) => {
+            if (ev.target.closest('.avatar-delete-badge')) return;
+            if (document.querySelector('.channel-item.delete-mode')) exitChannelDeleteMode();
+        });
+
         function renderAppChannels() {
             const slider = document.getElementById('channelsSlider');
             slider.innerHTML = '';
@@ -1459,9 +1567,11 @@
                 item.className = `channel-item ${isTwitch ? 'twitch-type' : ''}`;
                 item.id = `app-chan-${chan.id}`;
                 item.onclick = () => {
+                    if (item._longPressFired) { item._longPressFired = false; return; }
                     if (canVibrate()) navigator.vibrate(HAPTIC_TICK_DURATION_MS);
                     selectChannel(chan.id);
                 };
+                attachChannelLongPress(item, chan);
                 
                 const avatarCircle = document.createElement('div');
                 avatarCircle.className = 'avatar-circle';
