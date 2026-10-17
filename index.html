@@ -651,6 +651,41 @@
             transition: border-color 0.2s;
         }
 
+
+        /* Ricerca canali con tendina suggerimenti */
+        .suggest-wrap { position: relative; }
+        .suggest-list {
+            position: absolute; left: 0; right: 0; top: calc(100% + 6px);
+            background-color: var(--bg-surface-hover);
+            border: 1px solid #333; border-radius: var(--radius-card);
+            max-height: 300px; overflow-y: auto; z-index: 50;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6); display: none;
+            -webkit-overflow-scrolling: touch;
+        }
+        .suggest-list.open { display: block; }
+        .suggest-item {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 12px; cursor: pointer;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .suggest-item:last-child { border-bottom: none; }
+        .suggest-item:active { background-color: #2c2c2c; }
+        .suggest-avatar {
+            width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+            background-color: var(--bg-main); object-fit: cover;
+        }
+        .suggest-text { min-width: 0; display: flex; flex-direction: column; }
+        .suggest-title {
+            font-size: 14px; color: var(--text-main); font-weight: 500;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .suggest-sub {
+            font-size: 12px; color: var(--text-secondary);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .suggest-msg { padding: 14px 12px; font-size: 13px; color: var(--text-secondary); }
+        .suggest-selected { font-size: 11px; color: var(--text-secondary); margin-top: 6px; word-break: break-all; }
+
         .form-control:focus {
             border-color: var(--text-secondary);
         }
@@ -889,8 +924,12 @@
                 </select>
             </div>
             <div class="form-group">
-                <label id="idLabel">ID Canale UC...</label>
-                <input type="text" id="inputId" class="form-control" placeholder="Incolla l'ID qui...">
+                <label id="idLabel">Cerca canale YouTube</label>
+                <div class="suggest-wrap">
+                    <input type="text" id="inputId" class="form-control" placeholder="Scrivi il nome del canale..." autocomplete="off" autocapitalize="off" spellcheck="false" oninput="onChannelSearchInput()" onfocus="onChannelSearchInput()">
+                    <div id="suggestList" class="suggest-list"></div>
+                </div>
+                <p id="suggestSelected" class="suggest-selected" style="display:none;"></p>
             </div>
             <div class="form-group" id="twitchFilterGroup">
                 <label id="filterGroupLabel">Filtro Titolo (opzionale)</label>
@@ -1225,23 +1264,171 @@
         // INTERFACCIA E LOGICA SETTINGS
         // ---------------------------------------------------------------
         function updatePlaceholder() {
+            resetChannelSearch(true);
             const platform = document.getElementById('inputPlatform').value;
             const label = document.getElementById('idLabel');
             const input = document.getElementById('inputId');
             const filterLabel = document.getElementById('filterGroupLabel');
             const filterDesc = document.getElementById('filterGroupDesc');
             if(platform === 'twitch') {
-                label.innerText = "Nome Utente Twitch";
-                input.placeholder = "ilpregianza";
+                label.innerText = "Cerca canale Twitch";
+                input.placeholder = "Scrivi il nome del canale...";
                 filterLabel.innerText = "Filtro Titolo Rubrica (opzionale)";
                 filterDesc.innerText = "Se compilato, in app verranno mostrate solo le VOD Twitch il cui titolo contiene questo testo.";
             } else {
-                label.innerText = "ID Canale YouTube UC...";
-                input.placeholder = "UCxxxxxxxxxxxxxxxxx";
+                label.innerText = "Cerca canale YouTube";
+                input.placeholder = "Scrivi il nome del canale...";
                 filterLabel.innerText = "Filtro Titolo Video (opzionale)";
                 filterDesc.innerText = "Se compilato, in app verranno mostrati solo i video YouTube il cui titolo contiene questo testo.";
             }
         }
+
+
+        // ---------------------------------------------------------------
+        // RICERCA CANALI CON TENDINA (YouTube via Worker, Twitch via GraphQL)
+        // ---------------------------------------------------------------
+        let selectedSuggestion = null; // { platform, sourceId, label }
+        let searchDebounceTimer = null;
+        let searchRequestCounter = 0;
+
+        function escapeHtmlSafe(str) {
+            return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        function resetChannelSearch(clearInput) {
+            searchRequestCounter++;
+            clearTimeout(searchDebounceTimer);
+            selectedSuggestion = null;
+            const list = document.getElementById('suggestList');
+            if (list) { list.classList.remove('open'); list.innerHTML = ''; }
+            const sel = document.getElementById('suggestSelected');
+            if (sel) { sel.style.display = 'none'; sel.innerText = ''; }
+            if (clearInput) { const i = document.getElementById('inputId'); if (i) i.value = ''; }
+        }
+
+        function onChannelSearchInput() {
+            const input = document.getElementById('inputId');
+            const q = input.value.trim();
+            const platform = document.getElementById('inputPlatform').value;
+
+            // Se l'utente modifica il testo dopo una scelta, la scelta decade
+            if (selectedSuggestion && q !== selectedSuggestion.label) {
+                selectedSuggestion = null;
+                document.getElementById('suggestSelected').style.display = 'none';
+            }
+            if (selectedSuggestion) return;
+
+            clearTimeout(searchDebounceTimer);
+            const list = document.getElementById('suggestList');
+
+            // ID / link incollati direttamente: niente ricerca, si usa come prima
+            if (q.length < 2 || /^UC[\w-]{20,}$/.test(q) || /^https?:\/\//i.test(q)) {
+                searchRequestCounter++;
+                list.classList.remove('open');
+                return;
+            }
+
+            searchDebounceTimer = setTimeout(() => runChannelSearch(q, platform), 300);
+        }
+
+        async function runChannelSearch(q, platform) {
+            const myRequest = ++searchRequestCounter;
+            const list = document.getElementById('suggestList');
+            list.innerHTML = '<div class="suggest-msg">Ricerca in corso...</div>';
+            list.classList.add('open');
+
+            try {
+                const results = platform === 'twitch' ? await searchTwitchChannels(q) : await searchYoutubeChannels(q);
+                if (myRequest !== searchRequestCounter) return; // risposta vecchia, ignorata
+
+                if (!results.length) {
+                    list.innerHTML = '<div class="suggest-msg">Nessun canale trovato.</div>';
+                    return;
+                }
+                list.innerHTML = '';
+                results.forEach(r => {
+                    const item = document.createElement('div');
+                    item.className = 'suggest-item';
+                    const avatar = r.thumb
+                        ? `<img class="suggest-avatar" src="${escapeHtmlSafe(r.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+                        : `<div class="suggest-avatar"></div>`;
+                    item.innerHTML = `${avatar}<div class="suggest-text"><span class="suggest-title">${escapeHtmlSafe(r.title)}</span><span class="suggest-sub">${escapeHtmlSafe(r.sub || '')}</span></div>`;
+                    item.addEventListener('mousedown', ev => ev.preventDefault());
+                    item.addEventListener('click', () => pickChannelSuggestion(platform, r));
+                    list.appendChild(item);
+                });
+            } catch (err) {
+                if (myRequest !== searchRequestCounter) return;
+                console.warn('Ricerca canali fallita:', err);
+                list.innerHTML = '<div class="suggest-msg">Ricerca non disponibile. Puoi incollare l\'ID o il nome utente a mano.</div>';
+            }
+        }
+
+        function pickChannelSuggestion(platform, r) {
+            const input = document.getElementById('inputId');
+            selectedSuggestion = { platform, sourceId: r.sourceId, label: r.title };
+            input.value = r.title;
+            const nameInput = document.getElementById('inputName');
+            if (nameInput && !nameInput.value.trim()) nameInput.value = r.title;
+            const sel = document.getElementById('suggestSelected');
+            sel.innerText = (platform === 'twitch' ? 'Twitch: ' : 'YouTube ID: ') + r.sourceId;
+            sel.style.display = 'block';
+            const list = document.getElementById('suggestList');
+            list.classList.remove('open');
+            list.innerHTML = '';
+        }
+
+        async function searchYoutubeChannels(q) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            try {
+                const res = await fetch(`${YT_WORKER_URL}/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data?.error || `Worker ha risposto ${res.status}`);
+                return (data.channels || []).map(c => ({
+                    sourceId: c.id, title: c.title, sub: [c.handle, c.subs].filter(Boolean).join(' · '), thumb: c.thumb
+                }));
+            } finally { clearTimeout(timeoutId); }
+        }
+
+        async function twitchGql(query) {
+            const res = await fetch('https://gql.twitch.tv/gql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Client-ID': TWITCH_CLIENT_ID },
+                body: JSON.stringify({ query })
+            });
+            if (!res.ok) throw new Error(`Status ${res.status}`);
+            const json = await res.json();
+            if (json.errors || !json.data) throw new Error('Risposta GraphQL non valida.');
+            return json.data;
+        }
+
+        async function searchTwitchChannels(q) {
+            const safe = JSON.stringify(q);
+            try {
+                const d = await twitchGql(`query { searchFor(userQuery: ${safe}, platform: "web", options: { targets: [{ index: CHANNEL }] }) { channels { edges { item { ... on User { login displayName profileImageURL(width: 50) followers { totalCount } } } } } } }`);
+                const edges = d?.searchFor?.channels?.edges || [];
+                const out = edges.map(e => e.item).filter(u => u && u.login).slice(0, 8).map(u => ({
+                    sourceId: u.login, title: u.displayName || u.login,
+                    sub: '@' + u.login + (u.followers ? ' · ' + u.followers.totalCount.toLocaleString('it-IT') + ' follower' : ''),
+                    thumb: u.profileImageURL
+                }));
+                if (out.length) return out;
+            } catch (e) { console.warn('searchFor Twitch fallito, provo searchUsers', e); }
+
+            const d2 = await twitchGql(`query { searchUsers(userQuery: ${safe}, first: 8) { edges { node { login displayName profileImageURL(width: 50) } } } }`);
+            return (d2?.searchUsers?.edges || []).map(e => e.node).filter(u => u && u.login).map(u => ({
+                sourceId: u.login, title: u.displayName || u.login, sub: '@' + u.login, thumb: u.profileImageURL
+            }));
+        }
+
+        // Chiude la tendina toccando fuori
+        document.addEventListener('click', (ev) => {
+            if (!ev.target.closest('.suggest-wrap')) {
+                const l = document.getElementById('suggestList');
+                if (l) l.classList.remove('open');
+            }
+        });
 
         function cleanInputId(input, platform) {
             let clean = input.trim();
@@ -1911,7 +2098,9 @@
 
             if (!name || !rawId) return;
 
-            let sourceId = cleanInputId(rawId, platform);
+            let sourceId = (selectedSuggestion && selectedSuggestion.platform === platform && rawId === selectedSuggestion.label)
+                ? selectedSuggestion.sourceId
+                : cleanInputId(rawId, platform);
             const newId = name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(Math.random() * 1000);
 
             const newChannel = { id: newId, name: name, platform: platform, sourceId: sourceId };
@@ -1929,6 +2118,7 @@
             document.getElementById('inputName').value = '';
             document.getElementById('inputId').value = '';
             document.getElementById('inputTwitchFilter').value = '';
+            resetChannelSearch(false);
             
             renderAppChannels();
             renderManageChannelsList();
@@ -2249,9 +2439,13 @@
                     return;
                 }
 
+                const prevFirstId = (channelContentCache[channel.id]?.rawItems || [])[0]?.videoId || (channelContentCache[channel.id]?.rawItems || [])[0]?.id;
                 setCachedChannelContent(channel.id, channel.platform, rawItems);
 
                 if (lastActiveChannelId !== channel.id) return;
+
+                const newFirstId = (rawItems || [])[0]?.videoId || (rawItems || [])[0]?.id;
+                const hasNewVideos = newFirstId && newFirstId !== prevFirstId;
 
                 // Se questo è un aggiornamento "silenzioso" di una cache scaduta
                 // e la lista sta già mostrando dei video (mostrati subito dalla
@@ -2262,7 +2456,7 @@
                 // comunque salvati in cache e verranno mostrati alla prossima
                 // apertura del canale.
                 const alreadyShowingVideos = listContainer.querySelector('.video-card') !== null;
-                if (silent && alreadyShowingVideos) {
+                if (silent && alreadyShowingVideos && !hasNewVideos) {
                     return;
                 }
 
@@ -2270,8 +2464,13 @@
 
             } catch (err) {
                 console.error(err);
-                if (silent) return;
                 if (lastActiveChannelId !== channel.id) return;
+                if (silent) {
+                    // Non nascondere più il problema: segnala che la lista potrebbe essere vecchia
+                    const t = document.getElementById('currentChannelTitle');
+                    if (t && !t.innerText.includes('non aggiornato')) t.innerText += ' · non aggiornato ⚠';
+                    return;
+                }
 
                 if (channel.platform === 'twitch') {
                     renderTwitchFallback(listContainer, channel.sourceId.toLowerCase(), err.message);
